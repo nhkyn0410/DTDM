@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Exporter điện năng trên 3 laptop (infra/node/40-install-exporter.sh). Sửa IP cho đúng.
+  - job_name: minicloud-node-power
+    static_configs:
+      - targets: ["192.168.1.11:9101", "192.168.1.12:9101", "192.168.1.13:9101"]
+
+  # Metrics của Incus (CPU, RAM, mạng từng instance) cần chứng chỉ riêng có quyền metrics:
+  #   incus config trust add-certificate metrics.crt --type=metrics
+  # Bỏ comment khi đã gắn thư mục chứa chứng chỉ vào container Prometheus.
+  # - job_name: incus
+  #   scheme: https
+  #   metrics_path: /1.0/metrics
+  #   tls_config:
+  #     cert_file: /secrets/metrics.crt
+  #     key_file: /secrets/metrics.key
+  #     insecure_skip_verify: true
+  #   static_configs:
+  #     - targets: ["192.168.1.11:8443"]

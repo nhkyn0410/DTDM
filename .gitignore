@@ -1,0 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Du lieu local va bi mat (khong bao gio commit)
+*.db
+*.sqlite3
+.env
+secrets/
+*.key
+*.pem
+client.crt
+
+# Portal (frontend)
+node_modules/
+.next/
+
+# Editor va he dieu hanh
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
