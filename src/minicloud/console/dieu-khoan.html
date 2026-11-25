@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Điều khoản sử dụng · minicloud</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./">minicloud</a>
+    <span class="who"><a href="./">Về bảng điều khiển</a></span>
+  </header>
+
+  <main class="doc">
+    <h1>Điều khoản sử dụng</h1>
+    <p class="muted">minicloud là đồ án môn học. Các điều khoản và cam kết dưới đây mô phỏng cách một nhà cung cấp cloud thật làm việc với khách hàng; đây không phải hợp đồng thương mại.</p>
+
+    <h2>1. Ai được dùng</h2>
+    <ul>
+      <li>Chỉ người được nhóm mời, có mã mời. Mỗi người một tài khoản.</li>
+      <li>Credit là đơn vị mô phỏng: không mua bán và không quy đổi ra tiền.</li>
+      <li>Giai đoạn chạy thử kéo dài 2–3 tuần. Hết giai đoạn này, mọi máy và dữ liệu sẽ bị xoá.</li>
+    </ul>
+
+    <h2>2. Không được làm</h2>
+    <p>Cụm chạy trên mạng gia đình và dùng chung tên miền với website của nhóm, nên một người vi phạm có thể làm cả cụm bị chặn. Vì vậy, không được:</p>
+    <ul>
+      <li>Đào tiền ảo, hoặc giữ CPU ở 100% kéo dài mà không vì việc học.</li>
+      <li>Gửi thư rác, quét mạng hay quét cổng, tấn công hoặc làm quá tải bất kỳ hệ thống nào, kể cả máy của người dùng khác và chính minicloud.</li>
+      <li>Đặt trang lừa đảo, giả mạo, phần mềm độc hại, hoặc nội dung vi phạm pháp luật Việt Nam hay bản quyền.</li>
+      <li>Mở proxy hoặc VPN công khai cho người khác dùng.</li>
+      <li>Tìm cách vượt rào cô lập: thoát khỏi container, đọc dữ liệu hay can thiệp máy của người khác. Nếu tình cờ thấy lỗ hổng, hãy báo riêng cho nhóm vận hành.</li>
+    </ul>
+    <p>Khi có vi phạm hoặc có người báo cáo, nhóm có thể gỡ địa chỉ công khai, dừng hoặc xoá máy, và khoá tài khoản ngay mà không báo trước.</p>
+
+    <h2>3. Dữ liệu và quyền riêng tư</h2>
+    <ul>
+      <li>Nhóm lưu email, tên, tên tổ chức, bản băm (hash) của API key chứ không lưu key gốc, nhật ký thao tác (audit log), số liệu tính tiền và điện năng.</li>
+      <li>Lệnh bạn chạy qua bảng điều khiển được ghi vào audit log, tối đa 200 ký tự đầu.</li>
+      <li>Nhóm vận hành quản trị các laptop, nên về kỹ thuật có thể xem dữ liệu trong máy của bạn. Nhóm chỉ làm vậy khi xử lý sự cố hoặc vi phạm.</li>
+      <li>Đừng để mật khẩu thật hay dữ liệu nhạy cảm trong máy.</li>
+      <li>Bạn có thể yêu cầu xoá tài khoản bất cứ lúc nào.</li>
+    </ul>
+
+    <h2>4. Cam kết dịch vụ (SLA mô phỏng)</h2>
+    <ul>
+      <li>Mục tiêu: API sẵn sàng từ 99% thời gian trong giai đoạn chạy thử, đo từ bên ngoài cụm.</li>
+      <li>Nếu một tháng không đạt mục tiêu, tổ chức của bạn được cộng credit bù: 10% số credit đã dùng trong tháng khi độ sẵn sàng dưới 99%, và 25% khi dưới 95%.</li>
+      <li>Không cam kết về: dữ liệu trong máy (nhóm không sao lưu máy của khách), thời gian tạo máy, và các gián đoạn ngắn khi máy được chuyển sang laptop khác lúc gom tải.</li>
+      <li>Nhóm có thể dừng máy để bảo trì, và sẽ báo trước khi có thể.</li>
+    </ul>
+
+    <h2>5. Giá</h2>
+    <ul>
+      <li>Giá theo <a href="./#bang-gia">bảng giá</a> công khai, tính theo giây. Khi giá đổi, giá mới chỉ áp dụng cho thời gian sau khi đổi.</li>
+      <li>Hết credit thì mọi máy bị dừng cho tới khi được nạp thêm.</li>
+    </ul>
+  </main>
+
+  <footer class="muted small">minicloud · đồ án Điện toán đám mây · <a href="./">Bảng điều khiển</a> · <a href="huong-dan.html">Hướng dẫn</a> · <a href="/docs">Tài liệu API</a></footer>
+</body>
+</html>

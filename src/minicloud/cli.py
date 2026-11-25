@@ -4,9 +4,11 @@ uv run minicloud migrate
 uv run minicloud backup --dir backups
 uv run minicloud make-admin an@example.com
 uv run minicloud grant-credits org_1a2b3c4d5e6f 1000
+uv run minicloud stats
 """
 
 import argparse
+import json
 from pathlib import Path
 
 from sqlalchemy import select
@@ -15,8 +17,8 @@ from . import backup as backups
 from . import migrate
 from .config import get_settings
 from .db import make_engine, make_session_factory
-from .models import Organization, User
-from .services import metering
+from .models import Organization, User, utcnow
+from .services import metering, stats
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -32,6 +34,9 @@ def main(argv: list[str] | None = None) -> None:
     grant.add_argument("org_id")
     grant.add_argument("credits", type=int)
     grant.add_argument("--reason", default="admin grant")
+    sub.add_parser(
+        "stats", help="số liệu cho báo cáo chạy thử (JSON): người dùng, thời gian tạo máy"
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -75,6 +80,9 @@ def main(argv: list[str] | None = None) -> None:
             metering.grant_credits(db, org, args.credits, args.reason)
             balance = org.balance_millicredits / 1000
             print(f"Đã cộng {args.credits} credit cho {org.name}, số dư {balance}")
+        elif args.command == "stats":
+            figures = stats.collect(db, utcnow(), settings.green_grid_kg_co2_per_kwh)
+            print(json.dumps(figures, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

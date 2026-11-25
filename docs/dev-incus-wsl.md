@@ -96,6 +96,25 @@ sudo ./infra/node/61-setup-tunnel.sh minicloud-wsl vexenhanh.id.vn
 
 Đặt tên tunnel là `minicloud-wsl`; laptop-1 thật sẽ dùng `minicloud`. Khi chạy script 61 trên laptop-1, `--overwrite-dns` tự chuyển các tên máy từ tunnel WSL sang tunnel của laptop-1.
 
+Máy của khách trên staging nằm ở pool btrfs `tenants`, nơi giới hạn ổ của từng máy có tác dụng. Pool này dùng một file loop 20 GiB, chỉ chiếm chỗ thật khi có dữ liệu, nên khách không thể ghi tràn ổ C:. Pool `local` (dir) chỉ còn dùng cho cụm ảo. Dựng lại staging từ đầu thì làm thêm:
+
+```bash
+sudo apt-get install -y btrfs-progs
+sudo incus storage create tenants btrfs size=20GiB
+echo "MINICLOUD_INCUS_STORAGE_POOL=tenants" | sudo tee -a /etc/minicloud/minicloud.env
+sudo systemctl restart minicloud-api
+```
+
+Muốn chuyển một instance có sẵn sang pool khác, phải ghi rõ project đích, nếu không Incus 6.0 chuyển nó sang project `default`:
+
+```bash
+sudo incus stop --project mc-… <tên>
+sudo incus move --project mc-… --target-project mc-… <tên> --storage tenants
+sudo incus start --project mc-… <tên>
+```
+
+Ngày 2026-11-25, thiếu `--target-project` khiến app `hello` và API của staging gián đoạn khoảng 3 phút.
+
 Các lệnh hay dùng:
 
 | Việc | Lệnh |
@@ -104,6 +123,7 @@ Các lệnh hay dùng:
 | Cấp quyền admin | `sudo minicloud-admin make-admin <email>` |
 | Cập nhật code sau khi sửa | chạy lại script 50 (tự sao lưu database rồi migrate) |
 | Sao lưu ngay | `sudo minicloud-admin backup --dir /var/lib/minicloud/backups` |
+| Xem dung lượng pool của khách | `sudo incus storage info tenants` |
 | Đối chiếu ngay database với Incus | `POST /v1/admin/reconcile` với API key admin (worker vẫn tự làm mỗi phút) |
 | Xem log | `journalctl -u minicloud-api -u traefik -u cloudflared -f` |
 | Tắt hết | `wsl --terminate Ubuntu` (chạy trên Windows) |

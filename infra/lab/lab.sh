@@ -8,6 +8,7 @@
 #   sudo bash infra/lab/lab.sh stop           # dừng control plane thử và 3 VM, giữ lại để dùng tiếp
 #   sudo bash infra/lab/lab.sh start          # bật lại 3 VM và control plane thử
 #   sudo bash infra/lab/lab.sh destroy --yes  # xoá 3 VM, project lab và /root/minicloud-lab
+#   POOL_DRIVER=btrfs ... lab.sh up             # pool btrfs như node chạy trong WSL (ADR-0006)
 # Smoke test: infra/lab/smoke.sh. Hướng dẫn: docs/dev-incus-wsl.md.
 set -euo pipefail
 
@@ -99,14 +100,18 @@ cmd_up() {
   echo "==> Script 20 trên laptop-1, script 21 trên laptop-2 và laptop-3"
   # Máy thật có ổ riêng nên dùng POOL_SOURCE; ổ của VM chỉ 12 GiB nên pool loop để nhỏ.
   local log="${LAB}/logs/cluster.log"
+  local driver="${POOL_DRIVER:-zfs}"
+  echo "    pool: ${driver}"
   if ! vm lab-1 incus cluster list >/dev/null 2>&1; then
-    node_script lab-1 env POOL_SIZE=8GiB ./20-bootstrap-cluster.sh laptop-1 "${prefix}.11" >>"${log}" 2>&1
+    node_script lab-1 env POOL_SIZE=8GiB POOL_DRIVER="${driver}" \
+      ./20-bootstrap-cluster.sh laptop-1 "${prefix}.11" >>"${log}" 2>&1
   fi
   for i in 2 3; do
     if ! vm lab-1 incus cluster list --format csv | grep -q "^laptop-${i},"; then
       local token
       token="$(vm lab-1 incus cluster add "laptop-${i}" --quiet | tail -n 1)"
-      node_script "lab-${i}" env POOL_SIZE=8GiB ./21-join-cluster.sh "laptop-${i}" "${prefix}.1${i}" "${token}" >>"${log}" 2>&1
+      node_script "lab-${i}" env POOL_SIZE=8GiB POOL_DRIVER="${driver}" \
+        ./21-join-cluster.sh "laptop-${i}" "${prefix}.1${i}" "${token}" >>"${log}" 2>&1
     fi
   done
 
@@ -186,5 +191,5 @@ case "${1:-}" in
   stop) cmd_stop ;;
   start) cmd_start ;;
   destroy) cmd_destroy "${2:-}" ;;
-  *) sed -n '2,11p' "$0" ;;
+  *) sed -n '2,12p' "$0" ;;
 esac

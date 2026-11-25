@@ -57,11 +57,11 @@ def running_instance(tenant, run_worker, name: str = "web", now=None) -> str:
 def interrupt(session, inst_id: str, status: InstanceStatus) -> None:
     """Make the last operation look as if the control plane died while it ran."""
     with session() as db:
-        op = db.scalars(
-            select(Operation)
-            .where(Operation.instance_id == inst_id)
-            .order_by(Operation.created_at.desc())
-        ).first()
+        ops = db.scalars(select(Operation).where(Operation.instance_id == inst_id)).all()
+        # The one requested last. On Windows the clock can tick only every ~15.6 ms, so a create
+        # and the delete right after it may share created_at: prefer the operation still pending.
+        pending = [o for o in ops if o.status == OperationStatus.pending]
+        op = pending[0] if pending else max(ops, key=lambda o: o.created_at)
         op.status = OperationStatus.running
         op.finished_at = None
         inst = db.get(Instance, inst_id)

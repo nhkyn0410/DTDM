@@ -12,6 +12,7 @@ from . import ingress, reconciler
 from .catalog import FLAVORS, IMAGES
 from .config import Settings
 from .drivers.base import ComputeDriver, DriverError, InstanceSpec, ProjectLimits
+from .green.energy import EnergyMeter
 from .models import (
     Instance,
     InstanceStatus,
@@ -22,7 +23,7 @@ from .models import (
     utcnow,
 )
 from .scheduler import NoCapacityError, NodeCapacity, PlacementPolicy, choose_node
-from .services import metering
+from .services import green, metering
 from .services.instances import build_user_data, current_allocations
 
 log = logging.getLogger("minicloud.worker")
@@ -91,9 +92,11 @@ def _run(
         op.error = str(exc)
         inst.status = InstanceStatus.error
     op.finished_at = now
-    db.commit()
     if op.status == OperationStatus.succeeded:
+        # Before the commit, so a client that reads "succeeded" also finds the URL in step.
+        # On a real cluster this asks Incus for its members, which takes a moment.
         sync_ingress(db, driver, settings)
+    db.commit()
 
 
 def _create(
@@ -106,6 +109,10 @@ def _create(
 ) -> None:
     flavor = FLAVORS[inst.flavor]
     image = IMAGES[inst.image]
+    try:
+        driver.ensure_network_policy()  # no outgoing SMTP from tenants (threat model #10)
+    except DriverError as exc:  # keep serving customers; the next create tries again
+        log.error("tenant network policy not applied: %s", exc)
     driver.ensure_project(
         project.incus_project,
         ProjectLimits(
@@ -167,6 +174,7 @@ class BackgroundWorker:
         self._settings = settings
         self._stop = threading.Event()
         self._orphans: list[str] = []
+        self._energy = EnergyMeter()
         self._thread = threading.Thread(target=self._loop, name="minicloud-worker", daemon=True)
 
     def start(self) -> None:
@@ -188,8 +196,13 @@ class BackgroundWorker:
                 with self._session_factory() as db:
                     process_pending_operations(db, self._driver, self._settings)
                     if time.monotonic() >= next_tick:
-                        self._reconcile(db)
-                        metering.run_metering_tick(db, utcnow())
+                        report = self._reconcile(db)
+                        power = None  # Incus did not answer: keep the last estimates
+                        if report.skipped is None:
+                            power = green.estimate_power(
+                                db, self._driver, self._settings, report.observed, self._energy
+                            )
+                        metering.run_metering_tick(db, utcnow(), power=power)
                         # Also refresh routes: a laptop may have slept or changed address.
                         sync_ingress(db, self._driver, self._settings)
                         next_tick = time.monotonic() + self._settings.metering_interval_seconds
@@ -197,9 +210,10 @@ class BackgroundWorker:
                 log.exception("worker iteration failed")
             self._stop.wait(self._settings.worker_interval_seconds)
 
-    def _reconcile(self, db: Session) -> None:
+    def _reconcile(self, db: Session) -> reconciler.ReconcileReport:
         report = reconciler.reconcile(db, self._driver, self._settings)
         if report.orphans != self._orphans:  # say it once, not every minute
             self._orphans = report.orphans
             if report.orphans:
                 log.warning("in Incus but unknown to minicloud: %s", ", ".join(report.orphans))
+        return report

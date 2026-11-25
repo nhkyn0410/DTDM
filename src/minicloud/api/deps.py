@@ -9,6 +9,7 @@ from ..config import Settings
 from ..drivers.base import ComputeDriver
 from ..errors import Forbidden, Unauthorized
 from ..models import ApiKey, User, utcnow
+from ..ratelimit import TooManyRequests, client_ip
 from ..security import PREFIX_LENGTH, key_matches
 
 
@@ -33,20 +34,31 @@ Driver = Annotated[ComputeDriver, Depends(get_driver)]
 AppSettings = Annotated[Settings, Depends(get_app_settings)]
 
 
-def current_user(db: DB, authorization: Annotated[str | None, Header()] = None) -> User:
+def current_user(
+    request: Request, db: DB, authorization: Annotated[str | None, Header()] = None
+) -> User:
     if not authorization or not authorization.startswith("Bearer "):
         raise Unauthorized("missing API key: send 'Authorization: Bearer <key>'")
+    failures = request.app.state.auth_failure_limiter
+    ip = client_ip(request)
+    if failures.exceeded(ip):
+        raise TooManyRequests(
+            "too many wrong API keys from this address: wait and try again",
+            failures.retry_after(ip),
+        )
     raw = authorization.removeprefix("Bearer ").strip()
     key = db.scalar(
         select(ApiKey).where(ApiKey.prefix == raw[:PREFIX_LENGTH], ApiKey.revoked.is_(False))
     )
     if key is None or not key_matches(raw, key.key_hash):
+        failures.hit(ip)
         raise Unauthorized("invalid API key")
     user = db.get(User, key.user_id)
     if user is None:
         raise Unauthorized("invalid API key")
     key.last_used_at = utcnow()
     db.commit()
+    request.state.api_key_id = key.id  # lets the key list mark the key this request used
     return user
 
 

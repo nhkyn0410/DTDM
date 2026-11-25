@@ -1,6 +1,6 @@
 import pytest
 
-from minicloud.drivers.base import NodeState
+from minicloud.drivers.base import DriverError, NodeState
 from minicloud.services.instances import build_user_data
 
 
@@ -122,3 +122,21 @@ def test_a_running_instance_cannot_be_started_again(signup, run_worker):
     inst_id = tenant.create_instance().json()["instance"]["id"]
     run_worker()
     assert tenant.post(f"/v1/instances/{inst_id}/start").status_code == 409
+
+
+def test_creating_applies_the_tenant_network_policy(signup, run_worker, driver):
+    tenant = signup()
+    tenant.create_instance()
+    run_worker()
+    assert driver.network_policy_calls == 1
+
+
+def test_a_network_policy_error_does_not_stop_the_create(signup, run_worker, driver, monkeypatch):
+    def unavailable():
+        raise DriverError("network ACLs not supported here")
+
+    monkeypatch.setattr(driver, "ensure_network_policy", unavailable)
+    tenant = signup()
+    inst_id = tenant.create_instance().json()["instance"]["id"]
+    run_worker()
+    assert tenant.get(f"/v1/instances/{inst_id}").json()["status"] == "running"

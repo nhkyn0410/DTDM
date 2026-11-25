@@ -23,7 +23,7 @@ def not_found():
     return httpx.Response(404, json={"type": "error", "error": "not found", "error_code": 404})
 
 
-def driver_with(routes):
+def driver_with(routes, **options):
     """routes maps (METHOD, path) to a response, or to a function of the request."""
     calls: list[httpx.Request] = []
 
@@ -34,7 +34,8 @@ def driver_with(routes):
             return not_found()
         return route(request) if callable(route) else route
 
-    return IncusDriver("https://incus.test:8443", transport=httpx.MockTransport(handler)), calls
+    transport = httpx.MockTransport(handler)
+    return IncusDriver("https://incus.test:8443", transport=transport, **options), calls
 
 
 RUNNING = {
@@ -221,6 +222,14 @@ def test_list_instances_reads_every_project_in_one_call():
     assert call.url.params["all-projects"] == "true" and call.url.params["recursion"] == "2"
 
 
+def test_list_instances_reports_the_cpu_time_used():
+    state = {**RUNNING, "cpu": {"usage": 5_250_000_000}}  # nanoseconds, as Incus reports it
+    rows = [{"name": "web-abc", "project": "mc-1", "location": "laptop-2", "state": state}]
+    driver, _ = driver_with({("GET", "/1.0/instances"): ok(rows)})
+    [runtime] = driver.list_instances()
+    assert runtime.cpu_seconds == 5.25
+
+
 def test_on_a_single_server_every_instance_is_on_that_server():
     # Found on staging: Incus says "location": "none", and an instance recovered after a crash
     # had no node, so it got no route and the scheduler did not count it.
@@ -328,3 +337,141 @@ def test_ensure_project_on_an_existing_project_keeps_its_features():
     config = json.loads(update.content)["config"]
     assert config["features.profiles"] == "true" and config["restricted"] == "true"
     assert config["limits.instances"] == "7"
+
+
+def test_the_network_policy_blocks_smtp_and_keeps_the_bridge_config():
+    driver, calls = driver_with(
+        {
+            ("GET", "/1.0/network-acls/minicloud-egress"): not_found(),
+            ("POST", "/1.0/network-acls"): ok({}),
+            ("GET", "/1.0/networks/incusbr0"): ok(
+                {"description": "", "config": {"ipv4.address": "10.0.0.1/24", "ipv4.nat": "true"}}
+            ),
+            ("PUT", "/1.0/networks/incusbr0"): ok({}),
+        }
+    )
+    driver.ensure_network_policy()
+    acl = json.loads(next(c for c in calls if c.method == "POST").content)
+    assert acl["name"] == "minicloud-egress"
+    assert [(r["action"], r["protocol"], r["destination_port"]) for r in acl["egress"]] == [
+        ("reject", "tcp", "25")
+    ]
+    config = json.loads(next(c for c in calls if c.method == "PUT").content)["config"]
+    assert config["ipv4.address"] == "10.0.0.1/24" and config["ipv4.nat"] == "true"
+    assert config["security.acls"] == "minicloud-egress"
+    # Found on Incus 6.0: an ACL on a bridge otherwise rejects all the traffic it does not allow.
+    assert config["security.acls.default.egress.action"] == "allow"
+    assert config["security.acls.default.ingress.action"] == "allow"
+
+    calls.clear()
+    driver.ensure_network_policy()
+    assert calls == []  # once per control plane run
+
+
+def test_an_existing_network_policy_is_left_as_it_is():
+    driver, calls = driver_with(
+        {
+            ("GET", "/1.0/network-acls/minicloud-egress"): ok(
+                {
+                    "name": "minicloud-egress",
+                    "egress": [
+                        {
+                            "action": "reject",
+                            "protocol": "tcp",
+                            "destination_port": "25",
+                            "source": "",
+                        }
+                    ],
+                    "ingress": [],
+                }
+            ),
+            ("GET", "/1.0/networks/incusbr0"): ok(
+                {
+                    "config": {
+                        "security.acls": "other,minicloud-egress",
+                        "security.acls.default.egress.action": "allow",
+                        "security.acls.default.ingress.action": "allow",
+                    }
+                }
+            ),
+        }
+    )
+    driver.ensure_network_policy()
+    assert [c.method for c in calls] == ["GET", "GET"]
+
+
+def test_tenant_profiles_carry_the_bandwidth_cap():
+    driver, calls = driver_with(
+        {
+            ("GET", "/1.0/projects/mc-1"): not_found(),
+            ("POST", "/1.0/projects"): ok({}),
+            ("PUT", "/1.0/profiles/default"): ok({}),
+        },
+        nic_limit="20Mbit",
+    )
+    driver.ensure_project(
+        "mc-1", ProjectLimits(instances=5, vcpus=8, memory_mib=8192, disk_gib=100)
+    )
+    eth0 = json.loads(calls[-1].content)["devices"]["eth0"]
+    assert eth0["limits.ingress"] == "20Mbit" and eth0["limits.egress"] == "20Mbit"
+
+
+def test_a_command_starts_without_stdin_and_records_its_output():
+    driver, calls = driver_with({("POST", "/1.0/instances/web-abc/exec"): accepted("ex1")})
+    exec_id = driver.start_exec("mc-1", "web-abc", ["bash", "-c", "uptime"], {"HOME": "/root"})
+    assert exec_id == "ex1"
+    [call] = calls
+    assert call.url.params["project"] == "mc-1"
+    body = json.loads(call.content)
+    assert body["record-output"] is True
+    assert (body["interactive"], body["wait-for-websocket"]) == (False, False)
+    assert body["command"] == ["bash", "-c", "uptime"]
+
+
+def test_a_finished_command_returns_its_output_and_cleans_up():
+    logs = "/1.0/instances/web-abc/logs/exec-output/exec_ex1"
+    deleted = []
+    driver, _ = driver_with(
+        {
+            ("GET", "/1.0/operations/ex1/wait"): ok(
+                {
+                    "status": "Success",
+                    "metadata": {
+                        "output": {"1": f"{logs}.stdout", "2": f"{logs}.stderr"},
+                        "return": 7,
+                    },
+                }
+            ),
+            ("GET", f"{logs}.stdout"): httpx.Response(200, content=b"out\n"),
+            ("GET", f"{logs}.stderr"): httpx.Response(200, content="lỗi\n".encode()),
+            ("DELETE", f"{logs}.stdout"): lambda r: deleted.append(r.url.path) or ok({}),
+            ("DELETE", f"{logs}.stderr"): lambda r: deleted.append(r.url.path) or ok({}),
+        }
+    )
+    result = driver.wait_exec("mc-1", "web-abc", "ex1", 20)
+    assert (result.exit_code, result.stdout, result.stderr) == (7, "out\n", "lỗi\n")
+    assert result.truncated is False
+    assert len(deleted) == 2
+
+
+def test_a_command_still_running_when_the_wait_ends():
+    # Incus 6.0 ends the wait with this error instead of returning the running operation.
+    error = httpx.Response(
+        504, json={"type": "error", "error": "context deadline exceeded", "error_code": 504}
+    )
+    driver, _ = driver_with({("GET", "/1.0/operations/ex1/wait"): error})
+    assert driver.wait_exec("mc-1", "web-abc", "ex1", 20) is None
+
+
+def test_long_output_is_cut_and_a_forgotten_operation_still_has_its_logs():
+    logs = "/1.0/instances/web-abc/logs/exec-output/exec_ex1"
+    driver, _ = driver_with(
+        {
+            # The operation ended a while ago and Incus no longer knows it.
+            ("GET", f"{logs}.stdout"): httpx.Response(200, content=b"x" * 70_000),
+            ("GET", f"{logs}.stderr"): httpx.Response(200, content=b""),
+        }
+    )
+    result = driver.wait_exec("mc-1", "web-abc", "ex1", 20)
+    assert result.exit_code is None
+    assert len(result.stdout) == 64 * 1024 and result.truncated is True

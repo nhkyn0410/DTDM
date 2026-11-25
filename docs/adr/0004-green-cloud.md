@@ -32,6 +32,7 @@ Green cloud là điểm nhấn nhóm đã chọn. Laptop thuận lợi cho việ
 5. **Chia điện năng cho khách** (`minicloud.green.attribution`)
    - Phần điện lúc rảnh chia theo số vCPU được cấp, phần còn lại chia theo thời gian CPU thật sự dùng.
    - Hiện số Wh trên hoá đơn.
+   - Đã làm ngày 2026-11-25 ([kiến trúc](../architecture.md#điện-năng-của-từng-máy-green-cloud)): thời gian CPU lấy từ Incus mỗi phút; công suất laptop tạm tính theo mô hình ở bước 2 cho tới khi exporter gửi được số đo về control plane.
 
 ## Hệ quả
 

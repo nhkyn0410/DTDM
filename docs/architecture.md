@@ -33,10 +33,11 @@ Sơ đồ tổng thể nằm ở mục 5 của đề cương. Tài liệu này g
    - Quota của project còn đủ không.
 3. API ghi `Instance(pending)` và `Operation(pending)`, rồi trả 202 ngay.
 4. Worker lấy operation và làm tiếp:
-   1. Tạo Incus project kèm limits. Nếu project đã có, đọc config hiện tại, gộp limits vào rồi `PUT` lại; `PATCH` của Incus 6.0 coi các khoá `features.*` bị bỏ sót là tắt đi và báo lỗi.
-   2. Hỏi danh sách node, rồi để `scheduler.choose_node` chọn laptop.
-   3. Với container có URL công khai: cấp cổng và lưu ngay vào database trước khi gọi Incus.
-   4. Gọi `POST /1.0/instances?project=…&target=…` kèm cloud-init chứa SSH key.
+   1. Kiểm tra bridge của tenant có gắn ACL `minicloud-egress` (chặn cổng 25 chiều ra). Việc này chỉ gọi Incus ở lần tạo đầu tiên sau khi khởi động. Nếu lỗi, worker ghi log và vẫn tạo máy; lần tạo sau thử lại.
+   2. Tạo Incus project kèm limits. Nếu project đã có, đọc config hiện tại, gộp limits vào rồi `PUT` lại; `PATCH` của Incus 6.0 coi các khoá `features.*` bị bỏ sót là tắt đi và báo lỗi. Profile `default` của project có NIC giới hạn băng thông mỗi chiều (`MINICLOUD_INCUS_NIC_LIMIT`, mặc định 20 Mbit/s).
+   3. Hỏi danh sách node, rồi để `scheduler.choose_node` chọn laptop.
+   4. Với container có URL công khai: cấp cổng và lưu ngay vào database trước khi gọi Incus.
+   5. Gọi `POST /1.0/instances?project=…&target=…` kèm cloud-init chứa SSH key.
 5. Worker chờ Incus làm xong, ghi node và IP, chuyển trạng thái sang `running` và bắt đầu tính tiền.
 
 ## Trạng thái của instance
@@ -85,19 +86,38 @@ Khi khởi động, worker đánh dấu `failed` mọi operation còn `running` 
 
 ## Tính tiền
 
-- **Giá:** container `s1.small` 20 credit/giờ, VM gấp 1,5 lần. Máy đang dừng chỉ trả tiền đĩa, 0,1 credit mỗi GiB mỗi giờ.
+- **Giá:** container `s1.small` 20 credit/giờ, VM gấp 1,5 lần. Máy đang dừng chỉ trả tiền đĩa, 0,1 credit mỗi GiB mỗi giờ. Giá được đối chiếu với giá vốn và giá thị trường trong [bang-gia.md](bang-gia.md).
 - **Công thức:** tiền = giá mỗi giờ × số giây ÷ 3600, tính bằng số nguyên millicredit nên không có sai số làm tròn.
 - **Khi nào tính:** `metering.settle_instance` chạy trước mỗi lần đổi trạng thái, ở cả API lẫn worker, nên mỗi khoảng thời gian được tính đúng giá của nó. Ngoài ra worker chạy `run_metering_tick` mỗi 60 giây. Reconciler cũng tính tiền trạng thái cũ trước khi sửa theo Incus; vì không biết đúng lúc máy đổi, sai lệch tối đa là một lượt (60 giây).
 - **Hết credit:** khi số dư ≤ 0, tổ chức bị khoá và mọi instance đang chạy được dừng. Admin nạp thêm credit thì tổ chức được mở khoá.
+- **Sao kê tháng** (`services/statements.py`): tháng tính theo giờ Việt Nam (UTC+7). Một bản ghi usage thuộc tháng chứa thời điểm kết thúc của nó; bản ghi dài tối đa một lượt (60 giây), nên ranh giới tháng lệch không quá một phút. Số dư đầu kỳ = tổng credit nạp trước kỳ − tổng phí trước kỳ, nên số dư cuối kỳ của tháng hiện tại luôn bằng số dư của tổ chức (có test).
+- **Đồng hồ chi phí:** `GET /v1/orgs/{id}/billing` trả thêm phí tạm tính của tháng, gồm cả phần chưa kịp ghi sổ từ lượt trước, mức tiêu mỗi giờ và số giờ còn đủ dùng. Console tự cộng dồn mỗi giây giữa hai lần hỏi API.
+- **Ngân sách:** mỗi lượt tính tiền, worker so phí trong tháng với ngân sách của tổ chức và ghi `budget.alert` vào audit log khi lần đầu vượt 80% và 100%. Ngân sách chỉ cảnh báo, không dừng máy.
+- **Điện năng trên hoá đơn:** mỗi bản ghi usage của máy đang chạy có thêm số Wh = phần công suất laptop chia cho máy đó × số giây ÷ 3600 (`instances.power_watts`, xem mục Green cloud). Sao kê cộng số Wh và quy ra gam CO₂ theo hệ số lưới điện (`MINICLOUD_GREEN_GRID_KG_CO2_PER_KWH`).
+
+## Điện năng của từng máy (Green cloud)
+
+Mỗi lượt 60 giây, sau khi reconciler đọc danh sách instance từ Incus, worker ước tính công suất (`services/green.py`, `green/energy.py`):
+
+1. Lấy thời gian CPU mà mỗi instance đã dùng (`state.cpu.usage` của Incus, đọc chung trong lần gọi của reconciler), trừ cho số của lượt trước. Kết quả là số luồng CPU mà instance giữ bận trung bình.
+2. Mức dùng của laptop u = tổng số luồng bận ÷ số luồng của laptop. Công suất laptop P = P_idle + (P_max − P_idle) × u, với P_idle và P_max của từng laptop trong `MINICLOUD_GREEN_NODE_WATTS`.
+3. Chia P cho các instance trên laptop đó (`attribution.attribute_power`): P_idle chia theo số vCPU được cấp, phần còn lại chia theo thời gian CPU thật sự dùng. Một laptop đang thức mà chỉ chạy một máy thì máy đó gánh cả P_idle; gom máy về ít laptop hơn làm phần này giảm, đúng điều Green cloud nhắm tới.
+4. Ghi kết quả vào `instances.power_watts`. Khi tính tiền, mỗi khoảng máy chạy được ghi thêm số Wh = W × giây ÷ 3600.
+
+Laptop đang ngủ coi như 0 W. `GET /v1/green` cho mọi người dùng xem công suất ước tính của từng laptop và phần điện tiết kiệm nhờ laptop ngủ; console hiện thêm công suất và số Wh, gam CO₂ trong tháng của chính tổ chức.
+
+Hạn chế: đây là ước tính theo mô hình tuyến tính, chưa phải số đo. Khi exporter (RAPL, pin) chạy trên cả 3 laptop, thay P ở bước 2 bằng số đo của laptop đó. Lượt đầu tiên sau khi control plane khởi động chưa có số của lượt trước, nên chỉ chia P_idle.
 
 ## Cô lập giữa các tenant
 
 | Lớp | Đã có | Còn thiếu |
 | --- | --- | --- |
-| API | Kiểm tra membership ở mọi truy vấn; người ngoài nhận 404; ghi audit | Mã mời, rate limit |
+| API | Kiểm tra membership ở mọi truy vấn; người ngoài nhận 404; ghi audit; mã mời; giới hạn số lần đăng ký và số lần sai key theo IP | Đăng nhập OIDC có MFA |
 | Compute | Incus project `restricted`, `limits.cpu` và `limits.memory` cho từng instance | Đo bằng thí nghiệm "Hàng xóm ồn ào" |
-| Mạng | Dùng chung `incusbr0` có NAT | OVN: mỗi tenant một VPC, ACL làm security group |
+| Mạng | Dùng chung `incusbr0` có NAT; ACL `minicloud-egress` chặn cổng 25 chiều ra; mỗi instance tối đa 20 Mbit/s mỗi chiều | OVN: mỗi tenant một VPC, ACL làm security group |
 | cloud-init | SSH key được kiểm tra chặt và ghi dạng chuỗi JSON | Metadata service có token |
+
+ACL nằm trên bridge chứ không trên NIC của từng instance, vì Incus 6.0 không nhận `security.acls` trên NIC kiểu bridged. Bridge phải có thêm `security.acls.default.egress.action=allow` và `security.acls.default.ingress.action=allow`; thiếu hai khoá này thì bridge chặn mọi lưu lượng mà ACL không cho phép. Control plane tự đặt cả ba khoá, và giữ nguyên các khoá khác của bridge.
 
 ## Đưa app của khách ra Internet (đã làm cho container)
 

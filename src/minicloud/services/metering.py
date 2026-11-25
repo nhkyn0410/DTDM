@@ -17,6 +17,7 @@ from ..models import (
     Project,
     UsageRecord,
 )
+from . import statements
 
 
 def settle_instance(db: Session, inst: Instance, now: datetime) -> int:
@@ -38,6 +39,7 @@ def settle_instance(db: Session, inst: Instance, now: datetime) -> int:
     if rate == 0:
         return 0
     amount = rate * seconds // 3600
+    computing = inst.status in COMPUTE_STATUSES
     project = db.get(Project, inst.project_id)
     org = db.get(Organization, project.org_id)
     org.balance_millicredits -= amount
@@ -46,27 +48,46 @@ def settle_instance(db: Session, inst: Instance, now: datetime) -> int:
             org_id=org.id,
             project_id=project.id,
             instance_id=inst.id,
-            kind="compute" if inst.status in COMPUTE_STATUSES else "storage",
+            kind="compute" if computing else "storage",
             flavor=flavor.name,
             period_start=start,
             period_end=end,
             seconds=seconds,
             amount_millicredits=amount,
+            # Its share of the laptop's power over the interval (green.energy); a stopped
+            # instance draws nothing.
+            energy_wh=round((inst.power_watts or 0.0) * seconds / 3600, 4) if computing else 0.0,
         )
     )
     return amount
 
 
-def run_metering_tick(db: Session, now: datetime) -> dict[str, int]:
+def run_metering_tick(
+    db: Session, now: datetime, power: dict[str, float] | None = None
+) -> dict[str, int]:
+    """Bill every instance up to now, then suspend broke organizations and check budgets.
+
+    `power` maps instance ids to their share of their laptop's power over the last interval
+    (green.energy); it is recorded before billing so the interval's Wh uses it.
+    """
     instances = db.scalars(
         select(Instance).where(
             Instance.status != InstanceStatus.deleted, Instance.metered_until.is_not(None)
         )
     ).all()
+    if power is not None:
+        for inst in instances:
+            inst.power_watts = power.get(inst.id) if inst.status in COMPUTE_STATUSES else None
     charged = sum(settle_instance(db, inst, now) for inst in instances)
     suspended = suspend_broke_orgs(db)
+    warned = statements.check_budgets(db, now)
     db.commit()
-    return {"instances": len(instances), "charged_millicredits": charged, "suspended": suspended}
+    return {
+        "instances": len(instances),
+        "charged_millicredits": charged,
+        "suspended": suspended,
+        "budget_warnings": warned,
+    }
 
 
 def suspend_broke_orgs(db: Session) -> int:

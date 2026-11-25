@@ -1,8 +1,15 @@
 from fastapi import APIRouter
 
-from ..catalog import FLAVORS, IMAGES, hourly_rate_millicredits
+from ..catalog import (
+    FLAVORS,
+    IMAGES,
+    STORAGE_MILLICREDITS_PER_GIB_HOUR,
+    VM_PRICE_PERCENT,
+    hourly_rate_millicredits,
+)
 from ..models import InstanceStatus, InstanceType
-from ..schemas import FlavorOut, ImageOut
+from ..schemas import FlavorOut, ImageOut, PricingOut
+from .deps import AppSettings
 
 router = APIRouter(tags=["catalog"])
 
@@ -29,6 +36,17 @@ def flavors() -> list[FlavorOut]:
         )
         for f in FLAVORS.values()
     ]
+
+
+@router.get("/catalog/pricing", response_model=PricingOut)
+def pricing(settings: AppSettings) -> PricingOut:
+    """Quy tắc tính tiền chung: credit dùng thử, giá máy ảo, giá lưu trữ, quy đổi tham khảo."""
+    return PricingOut(
+        vnd_per_credit=settings.vnd_per_credit,
+        trial_credits=settings.trial_credits,
+        vm_price_percent=VM_PRICE_PERCENT,
+        storage_credits_per_gib_hour=STORAGE_MILLICREDITS_PER_GIB_HOUR / 1000,
+    )
 
 
 @router.get("/catalog/images", response_model=list[ImageOut])

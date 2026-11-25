@@ -40,8 +40,15 @@ def test_upgrading_again_changes_nothing(engine):
     assert migrate.upgrade(engine) == (head, head, False)
 
 
+def make_v01_database(engine) -> None:
+    """The tables v0.1 made with create_all (the WSL staging database, too): revision 0001."""
+    with engine.begin() as connection:
+        command.upgrade(migrate.alembic_config(connection), migrate.BASELINE)
+        connection.execute(text("DROP TABLE alembic_version"))
+
+
 def test_a_database_made_before_migrations_is_adopted_with_its_data(engine):
-    Base.metadata.create_all(engine)  # how v0.1 made its databases (the WSL staging one, too)
+    make_v01_database(engine)
     with engine.begin() as connection:
         connection.execute(
             text(
@@ -56,7 +63,7 @@ def test_a_database_made_before_migrations_is_adopted_with_its_data(engine):
 
 
 def test_an_unversioned_database_with_another_schema_is_refused(engine):
-    Base.metadata.create_all(engine)
+    make_v01_database(engine)
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE instances DROP COLUMN public_port"))
     with pytest.raises(migrate.LegacySchemaError, match="instances.public_port"):

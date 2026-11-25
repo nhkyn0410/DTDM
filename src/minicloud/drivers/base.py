@@ -47,10 +47,25 @@ class InstanceRuntime:
     status: str  # Incus wording: "Running", "Stopped", ...
     ip: str | None = None
     project: str | None = None  # filled in by list_instances
+    cpu_seconds: float | None = None  # CPU time used since the instance started, if known
+
+
+@dataclass(frozen=True)
+class ExecResult:
+    """A command that finished inside an instance."""
+
+    exit_code: int | None  # None when Incus no longer remembers it
+    stdout: str
+    stderr: str
+    truncated: bool = False  # output longer than the driver keeps
 
 
 class ComputeDriver(Protocol):
     def list_nodes(self) -> list[NodeState]: ...
+
+    def ensure_network_policy(self) -> None:
+        """Rules every tenant network needs, such as no outgoing SMTP (threat model #10)."""
+        ...
 
     def ensure_project(self, project: str, limits: ProjectLimits) -> None: ...
 
@@ -69,3 +84,11 @@ class ComputeDriver(Protocol):
         ...
 
     def move_instance(self, project: str, name: str, target_node: str) -> InstanceRuntime: ...
+
+    def start_exec(self, project: str, name: str, command: list[str], env: dict[str, str]) -> str:
+        """Start a command inside a running instance, without stdin; return its id."""
+        ...
+
+    def wait_exec(self, project: str, name: str, exec_id: str, timeout: float) -> ExecResult | None:
+        """Wait up to `timeout` seconds; None if the command is still running."""
+        ...

@@ -34,7 +34,7 @@ install -d -m 0755 "${APP}"
 rsync -a --delete \
   --exclude .git --exclude .venv --exclude secrets --exclude dev-routes --exclude .env --exclude backups \
   --exclude '*.db' --exclude __pycache__ --exclude .pytest_cache --exclude .ruff_cache \
-  --exclude node_modules \
+  --exclude node_modules --exclude .claude \
   "${REPO_ROOT}/" "${APP}/"
 (cd "${APP}" && uv sync --frozen --no-dev --python /usr/bin/python3 --quiet)
 

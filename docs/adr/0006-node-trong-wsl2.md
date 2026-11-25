@@ -43,7 +43,7 @@
 
 ## Thử trước khi chốt
 
-Một buổi với 2 laptop (laptop-1 và một máy nữa) cắm dây vào cùng một router:
+Một buổi với 2 laptop cắm dây vào cùng một router. Nên dùng laptop-2 và laptop-3: laptop-1 đang chạy staging, mà bật mạng mirrored hay đưa nó vào cụm đều phải khởi động lại WSL của nó. Các bước chi tiết và bảng kết quả ở [buoi-thu-wsl.md](../buoi-thu-wsl.md).
 
 1. Bật mạng mirrored trong WSL. Mở tường lửa Hyper-V cho cổng 8443 (cụm) và 20000–29999 (cổng công khai của app).
 2. Dựng cụm 2 node bằng script 10, 20, 21, 30, dùng pool btrfs.
@@ -51,7 +51,7 @@ Một buổi với 2 laptop (laptop-1 và một máy nữa) cắm dây vào cùn
 4. Khởi động lại Windows của máy thứ hai. WSL và Incus phải tự chạy lại, và máy phải tự vào lại cụm, không cần ai đăng nhập.
 5. Cho máy thứ hai ngủ rồi đánh thức. Cụm phải chạy tiếp.
 
-Đạt cả 5 bước thì chốt C. Hỏng ở bước 1–3 thì chuyển sang D.
+Đạt cả 5 bước thì chốt C. Hỏng ở bước 1–3 thì chuyển sang D. Hỏng ở bước 4–5 thì tìm cách khắc phục trước khi bỏ C.
 
 ## Hệ quả
 
@@ -61,7 +61,7 @@ Một buổi với 2 laptop (laptop-1 và một máy nữa) cắm dây vào cùn
   - Cần thêm một script cho phía Windows: `.wslconfig` (mirrored, RAM cho WSL), tường lửa Hyper-V, không ngủ khi cắm sạc, tự chạy WSL khi Windows khởi động.
   - Cụm ảo (`infra/lab`) nên có thêm chế độ btrfs để giống cụm thật.
 - **Bảo mật:** WSL mặc định thấy ổ C: của chủ máy (`/mnt/c`) và chạy được file `.exe` của Windows. Một container thoát được ra ngoài sẽ đụng tới file cá nhân của chủ máy. Vì vậy node phải tắt `automount` và `interop` trong `/etc/wsl.conf`, và repo phải nằm bên trong WSL thay vì trên `/mnt/c`.
-- **Staging:** đang dùng pool `dir`, nên một khách có thể ghi đầy ổ ảo WSL, tức ghi đầy ổ C: của laptop-1. Nên chuyển staging sang btrfs ngay, không chờ buổi thử.
+- **Staging:** từng dùng pool `dir`, nên một khách có thể ghi đầy ổ ảo WSL, tức ghi đầy ổ C: của laptop-1. Ngày 2026-11-25 đã chuyển máy của khách sang pool btrfs `tenants` (tối đa 20 GiB), không chờ buổi thử.
 - **Green cloud:**
   - Cho laptop ngủ nghĩa là cho Windows ngủ (Modern Standby); WSL dừng theo, giống bài thử `incus pause` trên cụm ảo.
   - Đánh thức bằng Wake-on-LAN tuỳ driver từng máy.

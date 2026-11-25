@@ -5,7 +5,7 @@ import json
 import pytest
 from sqlalchemy import select
 
-from minicloud import reconciler
+from minicloud import ingress, reconciler
 from minicloud.config import Settings
 from minicloud.drivers.base import DriverError
 from minicloud.ingress import _url
@@ -85,6 +85,31 @@ def test_stopping_removes_the_route_and_starting_restores_it(signup, run_worker,
     tenant.post(f"/v1/instances/{inst_id}/start")
     run_worker()
     assert len(routes(routes_file)["routers"]) == 1
+
+
+def test_the_route_changes_before_the_operation_reports_success(
+    signup, run_worker, routes_file, monkeypatch
+):
+    # Found on the lab cluster: a stop already read "succeeded" while the routes file still sent
+    # traffic to the stopped app, because asking Incus for its members takes a moment.
+    tenant = signup()
+    inst_id = tenant.create_instance("web").json()["instance"]["id"]
+    run_worker()
+    tenant.post(f"/v1/instances/{inst_id}/stop")
+    success_still_uncommitted = []
+    real_sync = ingress.sync
+
+    def spy(db, driver, settings):
+        pending = [o for o in db.dirty if isinstance(o, Operation)]
+        success_still_uncommitted.append(
+            any(o.status == OperationStatus.succeeded for o in pending)
+        )
+        return real_sync(db, driver, settings)
+
+    monkeypatch.setattr(ingress, "sync", spy)
+    run_worker()
+    assert success_still_uncommitted == [True]
+    assert json.loads(routes_file.read_text(encoding="utf-8")) == {}
 
 
 def test_ports_are_unique_and_come_back_after_delete(signup, run_worker, driver):

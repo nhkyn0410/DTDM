@@ -37,3 +37,8 @@ class QuotaExceeded(ApiError):
 class InsufficientCredits(ApiError):
     status_code = 402
     code = "insufficient_credits"
+
+
+class InvalidMonth(ApiError):
+    status_code = 422
+    code = "invalid_month"

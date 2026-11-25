@@ -63,6 +63,8 @@ class ReconcileReport:
     held_back: list[str] = field(default_factory=list)  # missing in Incus, but too many at once
     orphans: list[str] = field(default_factory=list)  # "project/name" in Incus, unknown here
     skipped: str | None = None  # why nothing was compared
+    # Everything Incus listed, so the worker can estimate power without asking Incus again.
+    observed: list[InstanceRuntime] = field(default_factory=list, repr=False)
 
 
 @dataclass(frozen=True)
@@ -191,7 +193,8 @@ def reconcile(
     suspended = set(db.scalars(select(Organization.id).where(Organization.suspended.is_(True))))
     read_at = utcnow()  # taken before asking Incus: rows changed after it are newer than Incus
     try:
-        observed = {(rt.project, rt.name): rt for rt in driver.list_instances()}
+        report.observed = driver.list_instances()
+        observed = {(rt.project, rt.name): rt for rt in report.observed}
     except DriverError as exc:
         log.warning("reconcile skipped, cannot list Incus instances: %s", exc)
         report.skipped = str(exc)

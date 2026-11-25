@@ -22,7 +22,8 @@ Ngày 2026-11-25, hai điều kiện (tạo máy thật qua API; mở app qua HT
   - laptop-2 là máy ASUS, laptop-3 là máy Lenovo. Báo cáo của máy Lenovo tự ghi là laptop-1; trưởng nhóm cần chốt lại số của từng máy.
 - [ ] Cài Ubuntu Server 24.04 lên 3 laptop (nếu được, chừa một phân vùng trống cho ZFS)
   - [ADR-0006](../adr/0006-node-trong-wsl2.md) đề xuất thay việc này bằng chạy node trong WSL2 với pool btrfs, và gắn SSD di động vào laptop-1. Chờ cả nhóm duyệt.
-- [ ] Buổi thử 2 laptop cùng mạng theo mục "Thử trước khi chốt" của ADR-0006
+- [ ] Buổi thử 2 laptop cùng mạng (laptop-2 và laptop-3) theo [buoi-thu-wsl.md](../buoi-thu-wsl.md)
+  - Script đã sẵn sàng và đã chạy thử trên cụm ảo (2026-11-25): `infra/wsl/setup-windows.ps1` (chỉ thử ở chế độ `-WhatIf`), `infra/wsl/setup-wsl.sh`, `infra/wsl/spike.sh`. Script 20 và 21 nhận `POOL_DRIVER=btrfs`.
 - [ ] Đặt IP cố định bằng DHCP reservation trên router
 - [ ] Chạy các script trong `infra/node` theo [infra/README.md](../../infra/README.md)
   - Đã chạy trọn trên cụm ảo 3 VM (`infra/lab/lab.sh up`) ngày 2026-11-25; còn chạy trên laptop thật.
@@ -35,6 +36,7 @@ Ngày 2026-11-25, hai điều kiện (tạo máy thật qua API; mở app qua HT
 - [x] Thử Cloudflare Tunnel từ máy dev: `https://cloud-api.vexenhanh.id.vn` chạy qua tunnel `minicloud-wsl` (laptop-1 tạm trên WSL)
 - [ ] Khi cụm đã chạy: chuyển tunnel sang laptop-1, thêm bản ghi wildcard cho app của khách
 - [x] Đưa một container thử nghiệm ra Internet qua tên miền con HTTPS (`hello-…vexenhanh.id.vn`, 2026-11-25)
+- [x] Chặn cổng 25 chiều ra và giới hạn băng thông của mỗi instance (2026-11-25: ACL `minicloud-egress` gắn trên bridge, 20 Mbit/s mỗi chiều; [threat model](../threat-model.md) dòng 10)
 - [ ] Rà soát và bổ sung [threat model](../threat-model.md); lên kế hoạch OVN cho tuần 3–5
 
 ## Vai trò 3: control plane lõi
@@ -45,21 +47,23 @@ Ngày 2026-11-25, hai điều kiện (tạo máy thật qua API; mở app qua HT
 - [x] Thêm reconciler: định kỳ đối chiếu trạng thái trong database với Incus (2026-11-25; đã thử trên staging, xem [kiến trúc](../architecture.md#khi-database-và-incus-lệch-nhau-reconciler))
 - [x] Sao lưu database hằng ngày bằng systemd timer, giữ 14 bản (2026-11-25)
 - [ ] Chép bản sao lưu ra ngoài laptop-1 (ví dụ sang laptop-2 bằng `rsync` theo lịch)
-- [ ] Chuyển staging từ pool `dir` sang btrfs: pool `dir` trong WSL không giới hạn được dung lượng ổ của khách (đã thử, xem ADR-0006)
+- [x] Chuyển staging từ pool `dir` sang btrfs, vì pool `dir` trong WSL không giới hạn được dung lượng ổ của khách (đã thử, xem ADR-0006)
+  - Xong ngày 2026-11-25: máy của khách nằm ở pool `tenants` (btrfs, tối đa 20 GiB). Lúc chuyển, app `hello` và API gián đoạn khoảng 3 phút vì lỗi của `incus move`; cách tránh ghi trong [dev-incus-wsl.md](../dev-incus-wsl.md).
 
 ## Vai trò 4: IAM và billing
 
 - [ ] Dựng Keycloak bằng docker compose; thiết kế đăng nhập OIDC cho portal, giữ API key cho CLI
-- [ ] Cho phép tạo nhiều API key có tên và thu hồi key
-- [ ] Tính bảng giá từ chi phí thật (khấu hao laptop, tiền điện theo số đo của vai trò 6, tiền mạng) ra giá vốn mỗi vCPU-giờ
-- [ ] Thiết kế hoá đơn tháng
+- [x] Cho phép tạo nhiều API key có tên và thu hồi key (2026-11-25: `/v1/me/api-keys` và mục "API key" trong console; tối đa 10 key, không thu hồi được key cuối cùng)
+- [x] Tính bảng giá từ chi phí thật (khấu hao laptop, tiền điện theo số đo của vai trò 6, tiền mạng) ra giá vốn mỗi vCPU-giờ
+  - 2026-11-25, xem [bang-gia.md](../bang-gia.md): giá vốn đầy đủ 221 đ/vCPU-giờ ở mức lấp đầy 50%, so với giá bán 200 đ. Giá laptop và tiền mạng còn là giả định: vai trò 4 thay bằng số thật.
+- [x] Thiết kế hoá đơn tháng (2026-11-25: sao kê theo tháng giờ Việt Nam, xuất CSV và PDF; đồng hồ chi phí; ngân sách tháng có cảnh báo 80% và 100%)
 
 ## Vai trò 5: portal và khách hàng
 
 - [x] Dựng khung web console: bản tối thiểu đã chạy ở `/console` (2026-11-25, xem [portal/README.md](../../portal/README.md)); quyết định làm tiếp trên nền này hay làm lại bằng Next.js
 - [ ] Sinh client TypeScript từ `/openapi.json`
 - [ ] Vẽ wireframe các màn: đăng ký, danh sách instance, tạo instance, chi tiết instance và hoá đơn
-- [ ] Viết trang hướng dẫn đầu tiên cho người dùng thử
+- [x] Viết trang hướng dẫn đầu tiên cho người dùng thử (2026-11-25: `/console/huong-dan.html`, kèm điều khoản sử dụng và AUP ở `/console/dieu-khoan.html`; việc của người trực ở [chay-thu.md](../chay-thu.md))
 
 ## Vai trò 6: Green cloud và giám sát
 

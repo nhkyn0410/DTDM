@@ -13,11 +13,14 @@ Nền tảng điện toán đám mây đa người thuê chạy trên cụm Incu
 | Laptop-1 tạm trên WSL: control plane, Traefik, cloudflared chạy thành dịch vụ (script 50, 60, 61) | Đang chạy trên máy dev của trưởng nhóm tại `https://cloud-api.vexenhanh.id.vn` (đăng ký cần mã mời); đã thử trọn chuỗi tới trang web trong container. Xem [docs/dev-incus-wsl.md](docs/dev-incus-wsl.md) |
 | Vòng đời instance qua operation bất đồng bộ, scheduler spread/binpack | Chạy được với cụm giả lập |
 | Metering theo giây, credit, tự khoá khi hết credit | Chạy được, có test |
+| Sao kê tháng (CSV, in PDF), đồng hồ chi phí, ngân sách có cảnh báo, bảng giá công khai, giá vốn so với thị trường ([docs/bang-gia.md](docs/bang-gia.md)) | Chạy được, có test |
+| Chạy lệnh trong máy từ console (`POST /v1/instances/{id}/exec`), vì SSH từ Internet không tới được máy của khách | Chạy được, có test; cách gọi exec của Incus 6.0 đã thử trên staging |
 | Chặn truy cập chéo tenant (trả 404, ghi audit) | Chạy được, có test |
 | Driver Incus (REST API qua TLS client cert) | Đã chạy trên Incus 6.0 một node trong WSL2, và trên cụm ảo 3 VM với Incus 7.6 (dàn 3 node, evacuate, restore, chuyển instance); **chưa thử trên laptop thật** |
 | URL công khai cho container: `https://<tên>-<6 ký tự>.vexenhanh.id.vn` (proxy device + Traefik) | Chạy được trên staging qua Cloudflare → Traefik → proxy device → container |
 | Alembic migration, reconciler đối chiếu database với Incus, sao lưu database hằng ngày | Chạy được, có test. Đã thử trên staging: nhận database cũ mà không mất dữ liệu, phát hiện `incus stop`/`start` làm ngoài minicloud, tự phục hồi khi API bị kill giữa lúc tạo máy |
 | Green cloud: planner gom tải, exporter đo điện (RAPL, pin), Wake-on-LAN | Đã viết, có test. Planner không để quá 1 trong 3 laptop ngủ, để giữ quorum của cụm (đã thử trên cụm ảo); chưa nối phần thực thi |
+| Green cloud: điện năng của từng máy (Wh và gam CO₂ trên sao kê), công suất từng laptop trên console (`GET /v1/green`) | Chạy được, có test; công suất laptop đang tính theo mô hình P(u) với thời gian CPU thật từ Incus |
 | Script dựng cụm 3 laptop | Đã chạy trọn trên cụm ảo 3 VM trong WSL (`infra/lab`, smoke test đạt); **chưa chạy trên laptop thật** |
 | Cổng vào public: Cloudflare Tunnel với `vexenhanh.id.vn` ([ADR-0005](docs/adr/0005-ten-mien-va-cong-vao.md)) | Đã dựng trên laptop-1 tạm (tunnel `minicloud-wsl`); có [hướng dẫn](infra/edge/README.md) |
 | Portal web, Keycloak, OVN, autoscaling, object storage | Chưa làm (xem [kế hoạch tuần 1–2](docs/plan/tuan-1-2.md)) |
@@ -89,5 +92,8 @@ Xem [docs/dev-incus-wsl.md](docs/dev-incus-wsl.md): dựng Incus một node tron
 - [Kiến trúc](docs/architecture.md): mô hình tài nguyên, luồng tạo instance, cách tính tiền.
 - [Quyết định kiến trúc (ADR)](docs/adr/): Incus, Python/FastAPI, hạ tầng 3 laptop, Green cloud, tên miền và cổng vào, node chạy trong WSL2 (ADR-0006, đang đề xuất).
 - [Threat model](docs/threat-model.md): các mối đe doạ của môi trường đa người thuê.
+- [Bảng giá và giá vốn](docs/bang-gia.md): giá cho khách, giá vốn mỗi vCPU-giờ, so với DigitalOcean, AWS và nhà cung cấp trong nước.
+- [Chạy thử với người dùng thật](docs/chay-thu.md): tin mời mẫu, việc của người trực, nhật ký sự cố, số liệu cho báo cáo, khảo sát.
+- Cho người dùng: [hướng dẫn](src/minicloud/console/huong-dan.html) và [điều khoản sử dụng](src/minicloud/console/dieu-khoan.html), phục vụ ở `/console/`.
 - [Kế hoạch tuần 1–2](docs/plan/tuan-1-2.md): việc của từng vai trò để qua mốc 1.
 - [Cách đóng góp](CONTRIBUTING.md): nhánh, review, quy ước commit.

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hướng dẫn · minicloud</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./">minicloud</a>
+    <span class="who"><a href="./">Về bảng điều khiển</a></span>
+  </header>
+
+  <main class="doc">
+    <h1>Hướng dẫn dùng minicloud</h1>
+    <p class="muted">minicloud là cloud thử nghiệm của một nhóm sinh viên làm đồ án môn Điện toán đám mây, chạy trên 3 laptop. Bạn thuê container hoặc máy ảo Ubuntu và trả bằng credit dùng thử, không phải tiền thật.</p>
+
+    <nav class="toc" aria-label="Mục lục">
+      <a href="#dang-ky">Đăng ký</a>
+      <a href="#tao-may">Tạo máy</a>
+      <a href="#chay-lenh">Chạy lệnh</a>
+      <a href="#web">Đưa web lên Internet</a>
+      <a href="#tien">Tiền và sao kê</a>
+      <a href="#dien">Điện năng</a>
+      <a href="#api">API</a>
+      <a href="#luu-y">Lưu ý</a>
+    </nav>
+
+    <h2 id="dang-ky">1. Đăng ký</h2>
+    <ol>
+      <li>Mở <a href="./">bảng điều khiển</a>, chọn <strong>Đăng ký</strong>. Nhập email, tên, tên nhóm và <strong>mã mời</strong> do nhóm vận hành gửi riêng cho bạn.</li>
+      <li>Bạn nhận một <strong>API key</strong> bắt đầu bằng <code>mc_</code>. Key chỉ hiện một lần, nên hãy lưu ngay, ví dụ vào trình quản lý mật khẩu. Key vừa để đăng nhập lại bảng điều khiển, vừa để gọi API.</li>
+      <li>Tổ chức mới có 500 credit dùng thử, đủ chạy một container s1.small khoảng 25 giờ.</li>
+    </ol>
+    <p>Lần sau, chọn <strong>Đã có API key</strong> và dán key vào. Mất key thì nhờ nhóm vận hành cấp lại.</p>
+
+    <h2 id="tao-may">2. Tạo máy</h2>
+    <ol>
+      <li>Ở mục <strong>Tạo máy mới</strong>, đặt tên gồm chữ thường, số và dấu gạch ngang, ví dụ <code>web-1</code>.</li>
+      <li>Chọn loại: <strong>Container</strong> rẻ và bật trong vài giây; <strong>Máy ảo</strong> cô lập mạnh hơn nhưng giá gấp 1,5 lần.</li>
+      <li>Chọn cấu hình (s1.small đủ cho một trang web nhỏ) và hệ điều hành, rồi bấm <strong>Tạo máy</strong>.</li>
+    </ol>
+    <p>Máy chuyển từ "Đang tạo" sang "Đang chạy" sau vài giây; lần đầu có thể mất một phút. Mỗi container có một địa chỉ HTTPS riêng dạng <code>https://web-1-a1b2c3.vexenhanh.id.vn</code>, trỏ tới cổng 80 bên trong máy. Máy ảo chưa có địa chỉ công khai.</p>
+
+    <h2 id="chay-lenh">3. Chạy lệnh trong máy</h2>
+    <p>Bấm <strong>Chạy lệnh</strong> ở một máy đang chạy, gõ lệnh rồi bấm <strong>Chạy</strong>. Kết quả hiện ngay trong khung đen.</p>
+    <ul>
+      <li>Lệnh chạy bằng <code>bash</code> với quyền root, nhưng không có bàn phím. Lệnh nào hỏi có hoặc không thì thêm <code>-y</code>, ví dụ <code>apt-get install -y git</code>.</li>
+      <li>Chương trình cần màn hình tương tác như <code>nano</code>, <code>vim</code>, <code>top</code> không dùng được. Sửa file bằng lệnh, ví dụ:
+        <pre>cat &gt; /root/ghi-chu.txt &lt;&lt;'HET'
+Dòng thứ nhất
+Dòng thứ hai
+HET</pre>
+      </li>
+      <li>Mỗi lệnh chạy tối đa 10 phút. Việc lâu hơn thì chạy nền rồi xem log sau:
+        <pre>nohup bash /root/viec-dai.sh &gt; /root/viec-dai.log 2&gt;&amp;1 &amp;
+tail -n 20 /root/viec-dai.log</pre>
+      </li>
+      <li>Từ Internet chưa SSH được vào máy, vì cổng vào của cụm chỉ chuyển HTTPS. Khoá SSH nhập lúc tạo máy vẫn được cài sẵn, để dùng khi nhóm mở SSH.</li>
+    </ul>
+
+    <h2 id="web">4. Đưa trang web lên Internet</h2>
+    <p>Ví dụ với một container vừa tạo:</p>
+    <ol>
+      <li>Mở <strong>Chạy lệnh</strong>, bấm nút mẫu <strong>Cài web server nginx</strong>, rồi bấm <strong>Chạy</strong>. Việc cài mất khoảng một phút.</li>
+      <li>Bấm nút mẫu <strong>Tạo trang chào</strong>, rồi bấm <strong>Chạy</strong>.</li>
+      <li>Bấm vào địa chỉ HTTPS của máy: trang hiện dòng "Xin chào từ minicloud". Điện thoại dùng 4G cũng mở được.</li>
+    </ol>
+    <p>Ứng dụng của bạn (Node.js, Python, Go…) chỉ cần nghe ở cổng 80. Ví dụ đưa mã nguồn từ GitHub lên nginx:</p>
+    <pre>apt-get install -y git
+git clone https://github.com/ten-ban/trang-cua-ban.git /root/site
+cp -r /root/site/* /var/www/html/</pre>
+
+    <h2 id="tien">5. Tiền và sao kê</h2>
+    <ul>
+      <li>Giá tính theo từng giây máy chạy; xem <a href="./#bang-gia">bảng giá</a> ở trang đăng ký. Máy đang dừng chỉ trả tiền ổ đĩa, nên hãy <strong>dừng máy khi không dùng</strong>.</li>
+      <li><strong>Tháng này (tạm tính)</strong> tăng theo thời gian thực. <strong>Còn đủ dùng</strong> cho biết với mức tiêu hiện tại, credit còn đủ bao lâu.</li>
+      <li>Đặt <strong>Ngân sách tháng</strong> để được cảnh báo khi phí tới 80% và 100%. Ngân sách chỉ cảnh báo, không dừng máy.</li>
+      <li><strong>Sao kê tháng</strong> có số dư đầu kỳ, tiền nạp, phí từng máy và số dư cuối kỳ. Bấm <strong>Tải CSV</strong> để mở bằng Excel, hoặc <strong>In hoặc lưu PDF</strong>.</li>
+      <li>Hết credit thì mọi máy bị dừng. Nhắn nhóm vận hành để được nạp thêm, rồi tự bật lại máy.</li>
+    </ul>
+
+    <h2 id="dien">6. Điện năng (Green cloud)</h2>
+    <p>Thẻ <strong>Điện năng</strong> cho biết máy của bạn đang dùng khoảng bao nhiêu W điện của laptop, và trong tháng đã dùng bao nhiêu Wh, tương đương bao nhiêu gam CO₂. Số này là ước tính: điện lúc rảnh của laptop chia theo số vCPU, phần còn lại chia theo thời gian CPU mỗi máy thật sự dùng.</p>
+    <p>Lúc vắng khách, nhóm gom máy về ít laptop hơn để laptop còn lại được ngủ. Khi đó máy của bạn có thể được chuyển sang laptop khác và gián đoạn từ vài giây tới vài phút.</p>
+
+    <h2 id="api">7. API và tự động hoá</h2>
+    <p>Mọi việc trên bảng điều khiển đều làm được qua REST API. Tài liệu và nút thử nằm ở <a href="/docs">/docs</a>; bấm <strong>Authorize</strong> rồi dán API key. Ví dụ với <code>curl</code>:</p>
+    <pre>KEY=mc_...   # API key của bạn
+curl -H "Authorization: Bearer $KEY" https://cloud-api.vexenhanh.id.vn/v1/me
+curl -H "Authorization: Bearer $KEY" https://cloud-api.vexenhanh.id.vn/v1/orgs</pre>
+    <p>Mỗi script nên dùng một key riêng, tạo ở mục <strong>API key</strong>. Key bị lộ thì thu hồi ngay ở đó.</p>
+
+    <h2 id="luu-y">8. Lưu ý</h2>
+    <ul>
+      <li>Đây là môi trường thử nghiệm: nhóm không sao lưu dữ liệu trong máy của bạn, nên hãy tự giữ bản sao những gì quan trọng.</li>
+      <li>Mỗi máy tối đa 20 Mbit/s mỗi chiều. Cổng 25 (gửi thư trực tiếp) bị chặn; gửi thư thì dùng dịch vụ có cổng 587.</li>
+      <li>Dùng minicloud nghĩa là bạn đồng ý với <a href="dieu-khoan.html">điều khoản sử dụng</a>.</li>
+      <li>Cần hỗ trợ, hoặc thấy lỗi bảo mật, hãy nhắn nhóm vận hành qua kênh đã gửi kèm mã mời.</li>
+    </ul>
+  </main>
+
+  <footer class="muted small">minicloud · đồ án Điện toán đám mây · <a href="./">Bảng điều khiển</a> · <a href="dieu-khoan.html">Điều khoản</a> · <a href="/docs">Tài liệu API</a></footer>
+</body>
+</html>

@@ -3,7 +3,14 @@
 import itertools
 from dataclasses import replace
 
-from .base import DriverError, InstanceRuntime, InstanceSpec, NodeState, ProjectLimits
+from .base import (
+    DriverError,
+    ExecResult,
+    InstanceRuntime,
+    InstanceSpec,
+    NodeState,
+    ProjectLimits,
+)
 
 
 def default_nodes() -> list[NodeState]:
@@ -20,6 +27,10 @@ class FakeDriver:
         self.instances: dict[tuple[str, str], InstanceRuntime] = {}
         self.public_ports: dict[tuple[str, str], int] = {}  # proxy devices that were added
         self.fail_next: str | None = None  # set a message to make the next call fail
+        self.network_policy_calls = 0
+        self.cpu_seconds: dict[tuple[str, str], float] = {}  # tests set CPU time used
+        self.execs: dict[str, tuple[str, str, list[str], int]] = {}
+        self.exec_waits = 0  # waits a command answers "still running" before it finishes
         self._counter = itertools.count(2)
 
     def _maybe_fail(self) -> None:
@@ -35,6 +46,10 @@ class FakeDriver:
 
     def list_nodes(self) -> list[NodeState]:
         return list(self.nodes.values())
+
+    def ensure_network_policy(self) -> None:
+        # Not wired to fail_next, which tests use to fail the create itself.
+        self.network_policy_calls += 1
 
     def ensure_project(self, project: str, limits: ProjectLimits) -> None:
         self._maybe_fail()
@@ -76,7 +91,10 @@ class FakeDriver:
 
     def list_instances(self) -> list[InstanceRuntime]:
         self._maybe_fail()
-        return [replace(rt, project=project) for (project, _), rt in self.instances.items()]
+        return [
+            replace(rt, project=project, cpu_seconds=self.cpu_seconds.get((project, name)))
+            for (project, name), rt in self.instances.items()
+        ]
 
     def move_instance(self, project: str, name: str, target_node: str) -> InstanceRuntime:
         self._maybe_fail()
@@ -85,6 +103,25 @@ class FakeDriver:
         runtime = replace(self._get(project, name), node=target_node)
         self.instances[(project, name)] = runtime
         return runtime
+
+    def start_exec(self, project: str, name: str, command: list[str], env: dict[str, str]) -> str:
+        self._maybe_fail()
+        if self._get(project, name).status != "Running":
+            raise DriverError(f"instance {name} is not running")
+        exec_id = f"exec-{next(self._counter)}"
+        self.execs[exec_id] = (project, name, command, self.exec_waits)
+        return exec_id
+
+    def wait_exec(self, project: str, name: str, exec_id: str, timeout: float) -> ExecResult | None:
+        self._maybe_fail()
+        if exec_id not in self.execs:
+            raise DriverError(f"unknown command {exec_id}")
+        project_, name_, command, waits = self.execs[exec_id]
+        if waits > 0:  # pretend the command needs more time
+            self.execs[exec_id] = (project_, name_, command, waits - 1)
+            return None
+        del self.execs[exec_id]
+        return ExecResult(0, f"(fake) {command[-1]}\n", "")
 
     def set_asleep(self, node: str, asleep: bool) -> None:
         """Pretend the Green planner put a laptop to sleep (or woke it up)."""

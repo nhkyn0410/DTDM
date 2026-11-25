@@ -12,9 +12,36 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .base import DriverError, InstanceRuntime, InstanceSpec, NodeState, ProjectLimits
+from .base import (
+    DriverError,
+    ExecResult,
+    InstanceRuntime,
+    InstanceSpec,
+    NodeState,
+    ProjectLimits,
+)
 
 _MIB = 1024 * 1024
+EXEC_OUTPUT_LIMIT = 64 * 1024  # bytes kept of each of stdout and stderr
+
+# Network ACL on the tenants' bridge (threat model #10). Incus 6.0 only takes ACLs on the bridge
+# itself, not on a bridged NIC, so the rules cover every instance on that bridge.
+EGRESS_ACL = "minicloud-egress"
+EGRESS_RULES = [
+    {
+        "action": "reject",
+        "protocol": "tcp",
+        "destination_port": "25",
+        "description": "SMTP: no direct mail, so the cluster's address stays off spam lists",
+        "state": "enabled",
+    }
+]
+
+
+def _has_rule(rules: list[dict[str, Any]], wanted: dict[str, Any]) -> bool:
+    """Incus fills unset rule fields with "": compare only the fields that matter."""
+    keys = ("action", "protocol", "destination_port")
+    return any(all(rule.get(k) == wanted.get(k) for k in keys) for rule in rules)
 
 
 def _first_ipv4(network: dict[str, Any] | None) -> str | None:
@@ -39,12 +66,15 @@ class IncusDriver:
         image_server: str = "https://images.linuxcontainers.org",
         storage_pool: str = "local",
         network: str = "incusbr0",
+        nic_limit: str = "",
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.image_server = image_server
         self.storage_pool = storage_pool
         self.network = network
+        self.nic_limit = nic_limit  # e.g. "20Mbit" each way per instance; "" for no limit
+        self._network_policy_ok = False
         self._clustered: bool | None = None  # learned from /1.0/cluster on first use
         self._server_name: str | None = None  # learned from /1.0 on first use
         # A single server is reached for its proxy ports the same way we reach its API.
@@ -153,6 +183,60 @@ class IncusDriver:
                 )
         return nodes
 
+    # -- network policy ----------------------------------------------------------------------
+
+    def ensure_network_policy(self) -> None:
+        """Make sure the tenants' bridge carries EGRESS_ACL. Cheap after the first success."""
+        if self._network_policy_ok:
+            return
+        acl = self._call("GET", f"/1.0/network-acls/{EGRESS_ACL}", allow_404=True)
+        if acl is None:
+            self._call(
+                "POST",
+                "/1.0/network-acls",
+                json={
+                    "name": EGRESS_ACL,
+                    "description": "minicloud: rules for tenant traffic",
+                    "egress": EGRESS_RULES,
+                    "ingress": [],
+                },
+            )
+        else:
+            current = acl.get("metadata") or {}
+            egress = list(current.get("egress") or [])
+            missing = [rule for rule in EGRESS_RULES if not _has_rule(egress, rule)]
+            if missing:
+                self._call(
+                    "PUT",
+                    f"/1.0/network-acls/{EGRESS_ACL}",
+                    json={
+                        "description": current.get("description") or "",
+                        "config": current.get("config") or {},
+                        "egress": egress + missing,
+                        "ingress": current.get("ingress") or [],
+                    },
+                )
+        network = self._sync("GET", f"/1.0/networks/{self.network}") or {}
+        config = dict(network.get("config") or {})
+        acls = [a for a in (config.get("security.acls") or "").split(",") if a]
+        wanted = {
+            "security.acls": ",".join(acls if EGRESS_ACL in acls else [*acls, EGRESS_ACL]),
+            # Without these, an ACL on a bridge rejects everything its rules do not allow.
+            "security.acls.default.egress.action": "allow",
+            "security.acls.default.ingress.action": "allow",
+        }
+        if any(config.get(key) != value for key, value in wanted.items()):
+            # GET, merge, PUT: every other key of the network (its addresses, NAT) stays as is.
+            self._call(
+                "PUT",
+                f"/1.0/networks/{self.network}",
+                json={
+                    "description": network.get("description") or "",
+                    "config": {**config, **wanted},
+                },
+            )
+        self._network_policy_ok = True
+
     # -- projects ----------------------------------------------------------------------------
 
     def ensure_project(self, project: str, limits: ProjectLimits) -> None:
@@ -197,6 +281,10 @@ class IncusDriver:
                 },
             )
         # A new project starts with an empty default profile: give it a root disk and a NIC.
+        nic = {"type": "nic", "name": "eth0", "network": self.network}
+        if self.nic_limit:  # bandwidth cap each way (threat model #10); applies live
+            nic["limits.ingress"] = self.nic_limit
+            nic["limits.egress"] = self.nic_limit
         self._call(
             "PUT",
             "/1.0/profiles/default",
@@ -206,7 +294,7 @@ class IncusDriver:
                 "config": {},
                 "devices": {
                     "root": {"type": "disk", "path": "/", "pool": self.storage_pool},
-                    "eth0": {"type": "nic", "name": "eth0", "network": self.network},
+                    "eth0": nic,
                 },
             },
         )
@@ -278,12 +366,14 @@ class IncusDriver:
             node = self._standalone_name()
         else:
             node = location or None
+        cpu_ns = (state.get("cpu") or {}).get("usage")  # nanoseconds; 0 for a stopped instance
         return InstanceRuntime(
             name=instance["name"],
             node=node,
             status=state.get("status") or instance.get("status") or "Unknown",
             ip=_first_ipv4(state.get("network")),
             project=instance.get("project") or None,
+            cpu_seconds=cpu_ns / 1e9 if isinstance(cpu_ns, int | float) else None,
         )
 
     def get_instance(self, project: str, name: str) -> InstanceRuntime | None:
@@ -353,3 +443,81 @@ class IncusDriver:
         if moved is None:
             raise DriverError(f"instance {name} not found after the move")
         return moved
+
+    # -- commands inside an instance ---------------------------------------------------------
+
+    def start_exec(self, project: str, name: str, command: list[str], env: dict[str, str]) -> str:
+        body = self._call(
+            "POST",
+            f"/1.0/instances/{name}/exec",
+            params={"project": project},
+            json={
+                "command": command,
+                "environment": env,
+                "interactive": False,
+                "wait-for-websocket": False,
+                "record-output": True,  # stdout and stderr go to log files we read afterwards
+                "cwd": env.get("HOME", "/root"),
+            },
+        )
+        operation = (body or {}).get("operation") or ""
+        exec_id = operation.rsplit("/", 1)[-1]
+        if not exec_id:
+            raise DriverError("Incus did not start the command")
+        return exec_id
+
+    def wait_exec(self, project: str, name: str, exec_id: str, timeout: float) -> ExecResult | None:
+        try:
+            body = self._call(
+                "GET",
+                f"/1.0/operations/{exec_id}/wait",
+                params={"project": project, "timeout": max(int(timeout), 1)},
+                timeout=timeout + 15,
+                allow_404=True,
+            )
+        except DriverError as exc:
+            if "deadline exceeded" in str(exc):  # Incus 6.0: still running when the wait ends
+                return None
+            raise
+        logs = f"/1.0/instances/{name}/logs/exec-output/exec_{exec_id}"
+        if body is None:  # Incus forgets an operation a few seconds after it ends
+            operation: dict[str, Any] = {"status": "Success", "metadata": {}}
+        else:
+            operation = body.get("metadata") or {}
+        if operation.get("status") == "Running":
+            return None
+        if operation.get("status") != "Success":
+            raise DriverError(operation.get("err") or f"command ended: {operation.get('status')}")
+        metadata = operation.get("metadata") or {}
+        output = metadata.get("output") or {"1": f"{logs}.stdout", "2": f"{logs}.stderr"}
+        stdout, cut_out = self._read_log(output.get("1"), project)
+        stderr, cut_err = self._read_log(output.get("2"), project)
+        for path in output.values():
+            try:
+                self._call("DELETE", path, params={"project": project}, allow_404=True)
+            except DriverError:
+                pass  # a leftover log file is harmless; Incus removes them with the instance
+        code = metadata.get("return")
+        return ExecResult(
+            code if isinstance(code, int) else None, stdout, stderr, cut_out or cut_err
+        )
+
+    def _read_log(self, path: str | None, project: str) -> tuple[str, bool]:
+        """Up to EXEC_OUTPUT_LIMIT bytes of an exec log file, and whether it was cut."""
+        if not path:
+            return "", False
+        data = b""
+        try:
+            with self._http.stream("GET", path, params={"project": project}) as resp:
+                if resp.status_code == 404:
+                    return "", False
+                if resp.status_code >= 400:
+                    raise DriverError(f"Incus answered HTTP {resp.status_code} for {path}")
+                for chunk in resp.iter_bytes():
+                    data += chunk
+                    if len(data) > EXEC_OUTPUT_LIMIT:
+                        break
+        except httpx.HTTPError as exc:
+            raise DriverError(f"cannot reach Incus: {exc}") from exc
+        cut = len(data) > EXEC_OUTPUT_LIMIT
+        return data[:EXEC_OUTPUT_LIMIT].decode("utf-8", errors="replace"), cut

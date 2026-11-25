@@ -1,6 +1,7 @@
 from .base import (
     ComputeDriver,
     DriverError,
+    ExecResult,
     InstanceRuntime,
     InstanceSpec,
     NodeState,
@@ -10,6 +11,7 @@ from .base import (
 __all__ = [
     "ComputeDriver",
     "DriverError",
+    "ExecResult",
     "InstanceRuntime",
     "InstanceSpec",
     "NodeState",

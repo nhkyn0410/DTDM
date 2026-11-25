@@ -1,6 +1,25 @@
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def parse_node_watts(value: str) -> dict[str, tuple[float, float]]:
+    """Parse "laptop-1=44.5/45.8,laptop-2=19.1/38.3" into {"laptop-1": (44.5, 45.8), ...}."""
+    result = {}
+    for item in value.split(","):
+        if not item.strip():
+            continue
+        name, sep, watts = item.partition("=")
+        idle, slash, peak = watts.partition("/")
+        try:
+            pair = (float(idle), float(peak))
+        except ValueError:
+            pair = None
+        if not sep or not slash or not name.strip() or pair is None or not 0 <= pair[0] <= pair[1]:
+            raise ValueError(f"expected <laptop>=<idle W>/<max W>, got {item.strip()!r}")
+        result[name.strip()] = pair
+    return result
 
 
 class Settings(BaseSettings):
@@ -20,6 +39,7 @@ class Settings(BaseSettings):
     incus_image_server: str = "https://images.linuxcontainers.org"
     incus_storage_pool: str = "local"
     incus_network: str = "incusbr0"
+    incus_nic_limit: str = "20Mbit"  # bandwidth cap per instance, each way; "" for none
 
     # Placement of new instances
     placement_policy: str = "spread"  # "spread" or "binpack"
@@ -29,6 +49,9 @@ class Settings(BaseSettings):
 
     # Billing
     trial_credits: int = 500
+    # Reference rate shown next to prices, to compare with real providers (docs/bang-gia.md).
+    # Credits stay a simulated currency: nobody pays real money.
+    vnd_per_credit: float = 10.0
     # When set, sign-up needs this code, so strangers who find the public API cannot use the
     # laptops. Leave empty only on a dev machine that is not reachable from the Internet.
     signup_invite_code: str = ""
@@ -38,6 +61,11 @@ class Settings(BaseSettings):
     green_pinned_nodes: str = "laptop-1"  # comma separated; runs the control plane, never sleeps
     green_idle_watts: float = 8.0  # replace with values measured on each laptop
     green_max_watts: float = 35.0
+    # Per laptop, overriding the two above: "laptop-1=44.5/45.8,laptop-2=19.1/38.3" (idle/max W)
+    green_node_watts: str = ""
+    # kg CO2 per kWh of Vietnam's grid: 0.681 in 2024 (estimate by HUST with the Ministry of
+    # Agriculture and Environment); update when the ministry publishes a newer factor.
+    green_grid_kg_co2_per_kwh: float = 0.681
 
     # Background worker
     run_worker: bool = True
@@ -53,9 +81,26 @@ class Settings(BaseSettings):
     # Web console origins allowed to call the API from a browser (comma separated)
     cors_origins: str = "http://localhost:3000"
 
+    # Rate limits per client address (threat model #2); 0 turns a limit off
+    rate_limit_signups_per_hour: int = 5
+    rate_limit_auth_failures: int = 50  # wrong API keys per 10 minutes before the address waits
+    rate_limit_execs: int = 120  # commands run in instances per user per 10 minutes
+
     @property
     def pinned_nodes(self) -> frozenset[str]:
         return frozenset(n.strip() for n in self.green_pinned_nodes.split(",") if n.strip())
+
+    @field_validator("green_node_watts")
+    @classmethod
+    def _check_node_watts(cls, value: str) -> str:
+        parse_node_watts(value)  # a typo stops the app at startup instead of skewing every bill
+        return value
+
+    def node_watts(self, node: str) -> tuple[float, float]:
+        """Idle and full-load power of a laptop, in W."""
+        return parse_node_watts(self.green_node_watts).get(
+            node, (self.green_idle_watts, self.green_max_watts)
+        )
 
     @property
     def cors_origin_list(self) -> list[str]:

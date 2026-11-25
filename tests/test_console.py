@@ -39,7 +39,18 @@ def test_the_console_never_turns_data_into_markup():
 
 
 def test_the_console_has_no_inline_script():
-    # The CSP forbids inline scripts, so any here would silently break the page.
-    html = (CONSOLE / "index.html").read_text(encoding="utf-8")
-    assert "<script>" not in html
-    assert " on" + "click=" not in html
+    # The CSP forbids inline scripts and styles, so any here would silently break the page.
+    for page in CONSOLE.glob("*.html"):
+        html = page.read_text(encoding="utf-8")
+        assert "<script>" not in html, page.name
+        assert " on" + "click=" not in html, page.name
+        assert " style=" not in html, page.name
+
+
+def test_the_help_and_terms_pages_are_served(client):
+    for page in ("huong-dan.html", "dieu-khoan.html"):
+        response = client.get(f"/console/{page}")
+        assert response.status_code == 200
+        assert "content-security-policy" in response.headers
+    index = client.get("/console/").text
+    assert 'href="huong-dan.html"' in index and 'href="dieu-khoan.html"' in index

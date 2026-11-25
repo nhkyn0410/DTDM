@@ -115,6 +115,8 @@ uv run pytest
 
 Nhóm đang dùng cách này cho laptop-1 tạm. Nó cho máy một Incus thật để thử, trong lúc nhóm chưa quyết định có cài Ubuntu Server cho các laptop hay không.
 
+Nếu máy này sẽ tham gia [buổi thử cụm WSL](buoi-thu-wsl.md), chỉ làm bước 1–3 dưới đây. Buổi thử tự cài Incus bản Zabbly; Incus cài trước bằng `apt` sẽ phải xoá đi.
+
 1. Ô VT-x/AMD-V trong bảng phải là "Có, đã bật". Nếu chưa, dừng lại: chủ máy phải bật Virtualization trong BIOS.
 2. Cài WSL và Ubuntu 24.04. Lệnh cần quyền admin (chủ máy mở PowerShell bằng "Run as administrator") và có thể phải khởi động lại máy:
 

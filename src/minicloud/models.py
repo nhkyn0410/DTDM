@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -96,6 +97,8 @@ class Organization(Base):
     balance_millicredits: Mapped[int] = mapped_column(BigInteger, default=0)
     suspended: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # Spending per calendar month (Vietnam time) above which the owner is warned; None: no budget.
+    monthly_budget_millicredits: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class Membership(Base):
@@ -165,6 +168,8 @@ class Instance(Base):
     public_hostname: Mapped[str | None] = mapped_column(String(253), nullable=True)
     public_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     public_blocked: Mapped[bool] = mapped_column(Boolean, default=False)  # admin kill switch
+    # Its share of its laptop's power at the last metering tick (green.energy); None: not known.
+    power_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     @property
     def public_url(self) -> str | None:
@@ -204,6 +209,7 @@ class UsageRecord(Base):
     period_end: Mapped[datetime] = mapped_column(DateTime, index=True)
     seconds: Mapped[int] = mapped_column(Integer)
     amount_millicredits: Mapped[int] = mapped_column(BigInteger)
+    energy_wh: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
 
 
 class LedgerEntry(Base):

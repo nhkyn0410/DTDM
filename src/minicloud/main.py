@@ -20,6 +20,7 @@ from .drivers.base import ComputeDriver, DriverError
 from .drivers.fake import FakeDriver
 from .drivers.incus import IncusDriver
 from .errors import ApiError
+from .ratelimit import RateLimiter
 from .worker import BackgroundWorker
 
 DESCRIPTION = """
@@ -59,6 +60,7 @@ def build_driver(settings: Settings) -> ComputeDriver:
             image_server=settings.incus_image_server,
             storage_pool=settings.incus_storage_pool,
             network=settings.incus_network,
+            nic_limit=settings.incus_nic_limit,
         )
     raise ValueError(f"unknown driver {settings.driver!r}; use 'fake' or 'incus'")
 
@@ -87,6 +89,10 @@ def create_app(settings: Settings | None = None, driver: ComputeDriver | None = 
     app.state.settings = settings
     app.state.session_factory = session_factory
     app.state.driver = driver
+    app.state.signup_limiter = RateLimiter(settings.rate_limit_signups_per_hour, 3600)
+    app.state.auth_failure_limiter = RateLimiter(settings.rate_limit_auth_failures, 600)
+    app.state.exec_limiter = RateLimiter(settings.rate_limit_execs, 600)  # per user
+    app.state.execs = {}  # commands started in instances, by id (api/instances.py)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
@@ -99,6 +105,7 @@ def create_app(settings: Settings | None = None, driver: ComputeDriver | None = 
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"code": exc.code, "message": exc.message}},
+            headers=getattr(exc, "headers", None),  # Retry-After on 429
         )
 
     @app.exception_handler(DriverError)

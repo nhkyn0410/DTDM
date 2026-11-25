@@ -1,5 +1,4 @@
 from dataclasses import asdict
-from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter
@@ -9,7 +8,7 @@ from .. import audit, ingress, reconciler
 from ..catalog import FLAVORS
 from ..errors import NotFound
 from ..green.planner import PlanInstance, PlannerConfig, PlanNode, plan_consolidation
-from ..models import Instance, InstanceStatus, Organization, Project, utcnow
+from ..models import Instance, InstanceStatus, Organization, Project
 from ..scheduler import Allocation
 from ..schemas import (
     BillingOut,
@@ -23,6 +22,7 @@ from ..schemas import (
 from ..services import metering
 from ..services.instances import current_allocations
 from ..worker import sync_ingress
+from .billing import billing_out
 from .deps import DB, AdminUser, AppSettings, Driver
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -90,19 +90,15 @@ def reconcile(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) -
 
 
 @router.post("/orgs/{org_id}/credits", response_model=BillingOut)
-def grant_credits(org_id: str, body: CreditsIn, admin: AdminUser, db: DB) -> BillingOut:
+def grant_credits(
+    org_id: str, body: CreditsIn, admin: AdminUser, db: DB, settings: AppSettings
+) -> BillingOut:
     """Cộng credit cho một tổ chức (mô phỏng nạp tiền); tự gỡ trạng thái bị khoá nếu số dư dương."""
     org = db.get(Organization, org_id)
     if org is None:
         raise NotFound("organization not found")
     metering.grant_credits(db, org, body.credits, body.reason, actor_id=admin.id)
-    spent = metering.spent_since(db, org.id, utcnow() - timedelta(hours=24))
-    return BillingOut(
-        org_id=org.id,
-        credits=org.balance_millicredits / 1000,
-        suspended=org.suspended,
-        spent_last_24h=spent / 1000,
-    )
+    return billing_out(db, org, settings)
 
 
 @router.get("/nodes", response_model=list[NodeOut])
@@ -141,8 +137,8 @@ def green_plan(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) 
             n.vcpus,
             n.memory_mib,
             awake=n.online and not n.asleep,
-            idle_watts=settings.green_idle_watts,
-            max_watts=settings.green_max_watts,
+            idle_watts=settings.node_watts(n.name)[0],
+            max_watts=settings.node_watts(n.name)[1],
         )
         for n in members
         if n.vcpus > 0  # a suspended laptop reports no capacity through Incus
