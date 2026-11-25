@@ -214,7 +214,15 @@ class IncusDriver:
     # -- instances ---------------------------------------------------------------------------
 
     def create_instance(self, spec: InstanceSpec) -> InstanceRuntime:
-        config = {"limits.cpu": str(spec.vcpus), "limits.memory": f"{spec.memory_mib}MiB"}
+        config = {
+            "limits.cpu": str(spec.vcpus),
+            "limits.memory": f"{spec.memory_mib}MiB",
+            # Instances live on each laptop's local ZFS pool. With the default "auto",
+            # "incus cluster evacuate" only stops them (seen on Incus 7.6), so the app stays down
+            # until the laptop comes back. "migrate" moves them instead (stop, copy, start); the
+            # reconciler then records the new node and the public URL follows.
+            "cluster.evacuate": "migrate",
+        }
         if spec.user_data:
             config["cloud-init.user-data"] = spec.user_data
         body = {
@@ -339,6 +347,8 @@ class IncusDriver:
         self._wait(response, project, timeout=1800)
         if was_running:
             self._set_state(project, name, "start")
+            # Like start_instance: the new laptop's DHCP answers a moment after the start.
+            return self._runtime_with_ip(project, name)
         moved = self.get_instance(project, name)
         if moved is None:
             raise DriverError(f"instance {name} not found after the move")

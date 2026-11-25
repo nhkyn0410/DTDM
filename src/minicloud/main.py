@@ -16,7 +16,7 @@ from . import __version__, migrate
 from .api import api_router
 from .config import Settings, get_settings
 from .db import make_engine, make_session_factory
-from .drivers.base import ComputeDriver
+from .drivers.base import ComputeDriver, DriverError
 from .drivers.fake import FakeDriver
 from .drivers.incus import IncusDriver
 from .errors import ApiError
@@ -99,6 +99,20 @@ def create_app(settings: Settings | None = None, driver: ComputeDriver | None = 
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"code": exc.code, "message": exc.message}},
+        )
+
+    @app.exception_handler(DriverError)
+    async def handle_driver_error(_: Request, exc: DriverError) -> JSONResponse:
+        # Endpoints that ask Incus directly (admin nodes, green plan) fail when the cluster does
+        # not answer, e.g. after losing quorum: say so instead of a bare 500.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "cluster_unavailable",
+                    "message": f"the Incus cluster did not answer: {exc}",
+                }
+            },
         )
 
     @app.middleware("http")

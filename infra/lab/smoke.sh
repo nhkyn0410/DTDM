@@ -6,7 +6,7 @@
 # Hoặc từng bước:
 #   setup | nodes | create [tên...] | list | incus | web | routes | probe
 #   op <stop|start|delete> <tên> | evacuate <node> | restore <node> | watch [giây]
-#   reconcile | audit [số dòng]
+#   reconcile | plan | audit [số dòng]
 set -uo pipefail
 API=http://127.0.0.1:8100
 LAB=/root/minicloud-lab
@@ -233,6 +233,7 @@ case "${1:-}" in
     done
     ;;
   reconcile) load_state; do_reconcile ;;
+  plan) load_state; api GET /v1/admin/green/plan | jq -c . ;;
   audit) load_state; api GET "/v1/orgs/${ORG}/audit" | jq -c --argjson n "${2:-15}" '.[:$n][] | del(.id, .org_id)' ;;
   *) sed -n '2,9p' "$0" ;;
 esac

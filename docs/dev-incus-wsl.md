@@ -35,7 +35,7 @@ profiles:
 EOF
 ```
 
-Kernel của WSL không có ZFS nên pool dùng kiểu `dir`; tên pool vẫn là `local` để khớp cấu hình mặc định.
+Kernel của WSL không có ZFS nên pool dùng kiểu `dir`; tên pool vẫn là `local` để khớp cấu hình mặc định. Pool `dir` không áp được giới hạn dung lượng ổ của container (đã thử), nên chỉ hợp để phát triển. Cụm thật dùng btrfs theo [ADR-0006](adr/0006-node-trong-wsl2.md).
 
 Tạo chứng chỉ cho control plane, lưu vào thư mục `secrets/` của repo (đã có trong `.gitignore`):
 
@@ -108,3 +108,51 @@ Các lệnh hay dùng:
 | Xem log | `journalctl -u minicloud-api -u traefik -u cloudflared -f` |
 | Tắt hết | `wsl --terminate Ubuntu` (chạy trên Windows) |
 | Gỡ tunnel thử | `cloudflared tunnel delete minicloud-wsl`, rồi xoá các bản ghi `cloud-api` và `*` trong dashboard Cloudflare |
+
+## Cụm ảo 3 node
+
+Trong lúc chờ 3 laptop, có thể dựng một cụm Incus 3 node ngay trong WSL. Cụm gồm 3 VM Ubuntu 24.04 tên `lab-1`, `lab-2`, `lab-3`, chạy đúng các script 00, 10, 20, 21, 30 của `infra/node` như trên laptop thật. Một control plane riêng ở cổng 8100 nối vào cụm này để làm smoke test.
+
+Staging không bị đụng tới:
+
+- Các VM nằm trong project Incus `lab`, còn reconciler của staging chỉ xem các project `mc-*`.
+- Control plane thử có database, chứng chỉ và file tuyến riêng trong `/root/minicloud-lab`.
+
+Cần chuẩn bị:
+
+- **RAM:** khoảng 9 GiB trống trong WSL, mỗi VM 3 GiB.
+- **Ổ đĩa:** khoảng 15 GB trống trên ổ chứa đĩa ảo của WSL, thường là C:. Đĩa ảo không tự co lại khi xoá VM. Ngày 2026-11-25, dựng cụm hai lần (lần sau để thử lại script) làm ổ C: của máy trưởng nhóm giảm khoảng 20 GB.
+- **KVM lồng nhau:** trong WSL phải có `/dev/kvm`. Windows 11 bật sẵn.
+- **QEMU:** gói `incus` của Ubuntu chưa kèm QEMU, nên lần đầu script tự cài QEMU rồi khởi động lại Incus. Container của staging vẫn chạy trong lúc đó.
+
+Trong WSL, ở thư mục repo:
+
+```bash
+sudo bash infra/lab/lab.sh up          # tạo 3 VM, chạy script 00, 10, 20, 21, 30 (khoảng 5 phút)
+sudo bash infra/lab/lab.sh cp          # control plane thử ở http://127.0.0.1:8100
+sudo bash infra/lab/smoke.sh all       # bước 6–8 của smoke test, khoảng 1–2 phút
+sudo bash infra/lab/lab.sh stop        # dừng để trả RAM; "start" để bật lại
+sudo bash infra/lab/lab.sh destroy --yes
+```
+
+`lab.sh up` chép bản repo đang có trên máy, kể cả phần chưa commit, nên dùng được để thử script vừa sửa. Sửa code control plane thì chạy lại `lab.sh cp`. `smoke.sh` còn chạy được từng bước lẻ (`create`, `probe`, `evacuate`, `watch`, `audit`…); chạy không tham số để xem danh sách.
+
+Cụm ảo không thay được laptop thật ở mấy chỗ: mạng LAN và switch thật, Wake-on-LAN, đo điện, VM của khách (sẽ thành VM lồng trong VM lồng trong WSL), và tốc độ ổ đĩa.
+
+Lần chạy đầu, ngày 2026-11-25, dùng Incus 7.6 cài từ kho Zabbly như script 10. Nó tìm ra bốn lỗi, đều đã sửa:
+
+- **Script không có quyền chạy:** các file `infra/node/*.sh` thiếu quyền chạy trong git, nên trên Linux, quên `chmod +x` là gặp lỗi "Command not executable". Quyền chạy giờ được lưu trong git.
+- **Evacuate làm tắt app của khách:** mặc định, `incus cluster evacuate` chỉ dừng instance nằm trên ổ cục bộ, nên app tắt cho tới khi laptop được restore. Control plane giờ đặt `cluster.evacuate=migrate` cho mỗi instance mới. Evacuate vì vậy chuyển nguội instance sang laptop khác; reconciler ghi node mới trong vòng một phút, và URL công khai đi theo.
+- **Incus tự chọn laptop đích khi evacuate,** không theo scheduler của minicloud. Lần thử, nó dồn 3 instance s1.small (3 GiB) vào một node chỉ có 2 GiB dành cho khách. Vì vậy Green cloud phải tự chuyển instance đi trước khi evacuate ([ADR-0004](adr/0004-green-cloud.md)).
+- **`move_instance` trả về quá sớm:** hàm này (Green cloud dùng để gom tải) trả về lúc instance chưa có IP ở laptop mới. Giờ nó chờ DHCP như `start_instance`.
+
+Thử quorum cùng ngày, giả lập laptop ngủ bằng `incus pause` VM và đánh thức bằng `incus resume`:
+
+- **1 trong 3 node ngủ:** cụm vẫn quản lý bình thường. Instance mới tránh node đang ngủ; app trên node đó không trả lời.
+- **2 trong 3 node ngủ:** mọi lệnh Incus báo `no available cowsql leader server found`. Reconciler bỏ qua lượt, lệnh tạo instance chuyển sang `error`, còn app trên node thức vẫn phục vụ.
+- **Đánh thức một node:** cụm quản lý lại được sau khoảng 7 giây. Instance trên các node vừa ngủ chạy tiếp như cũ.
+
+Lần thử này sửa thêm hai lỗi:
+
+- Planner Green cloud từng đề xuất cho 2 trong 3 laptop ngủ. Giờ cụm từ 3 node chỉ cho tối đa một laptop ngủ.
+- Khi cụm không trả lời, `/v1/admin/nodes` và `/v1/admin/green/plan` trả HTTP 500. Giờ chúng trả 503 với mã `cluster_unavailable`.

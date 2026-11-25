@@ -88,7 +88,7 @@ Nó in thêm một dòng cho bảng số đo điện năng, chỉ có hai ô "r�
 
 Các ô còn lại của bảng điện để trống:
 
-- **Cắm sạc:** cần ổ cắm đo điện; vai trò 6 đo sau.
+- **Cắm sạc:** để trống, vì nhóm không có ổ cắm đo điện.
 - **Thời gian ngủ, thời gian thức dậy:** đo sau khi máy chạy Ubuntu, bằng suspend và Wake-on-LAN ([ADR-0004](adr/0004-green-cloud.md)).
 
 ## Bước 5: Cài phần mềm

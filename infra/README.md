@@ -1,6 +1,6 @@
 # Dựng cụm 3 laptop
 
-Các script trong `infra/node/` chưa chạy trên laptop thật. Chạy lần lượt, đọc kỹ thông báo của từng bước, và ghi lại lỗi gặp phải vào `docs/plan/tuan-1-2.md`.
+Các script trong `infra/node/` đã chạy trọn trên cụm ảo 3 VM trong WSL (`infra/lab`, xem [docs/dev-incus-wsl.md](../docs/dev-incus-wsl.md#cụm-ảo-3-node)), nhưng chưa chạy trên laptop thật. Chạy lần lượt, đọc kỹ thông báo của từng bước, và ghi lại lỗi gặp phải vào `docs/plan/tuan-1-2.md`.
 
 ## Chuẩn bị
 
@@ -16,7 +16,7 @@ Trên cả 3 laptop, sau khi cài Ubuntu và `git clone` repo này:
 
 ```bash
 cd infra/node
-chmod +x *.sh
+chmod +x *.sh                               # chỉ cần với bản clone trước ngày 2026-11-25
 sudo ./00-prepare-laptop.sh laptop-1        # laptop-2, laptop-3 trên hai máy kia
 sudo ./10-install-incus.sh
 ```
@@ -89,12 +89,27 @@ incus delete -f thu-ct thu-vm
 
 Sau đó làm smoke test với control plane theo [kế hoạch tuần 1–2](../docs/plan/tuan-1-2.md).
 
+## Bảo trì một laptop
+
+Trước khi tắt hoặc cài lại một laptop, chuyển instance của nó sang hai máy kia:
+
+```bash
+sudo incus cluster evacuate laptop-2   # mỗi instance bị tắt, chép sang máy khác rồi bật lại
+sudo incus cluster restore laptop-2    # khi máy chạy lại: đưa instance về
+```
+
+Instance chuyển được nhờ `cluster.evacuate=migrate`, khoá mà control plane đặt cho mỗi instance mới; thiếu khoá đó, Incus chỉ dừng instance. Reconciler ghi node mới trong vòng một phút và tuyến công khai đi theo. Incus tự chọn máy đích, không theo scheduler của minicloud, nên có thể dồn quá mức RAM mà control plane cho phép. Xem lại bằng `GET /v1/admin/nodes`.
+
+Không tắt, cho ngủ hay mang đi hai laptop cùng lúc. Cụm 3 node cần ít nhất 2 node chạy thì mới quản lý được. Thiếu một node, mọi lệnh `incus` báo `no available cowsql leader server found`, và API admin trả 503. App trên laptop còn chạy vẫn phục vụ bình thường. Bật lại một máy là cụm hồi sau vài giây.
+
 ## Lỗi hay gặp
 
 | Triệu chứng | Nguyên nhân thường gặp |
 | --- | --- |
 | Gập máy thì node rớt khỏi cụm | Chưa chạy script 00, hoặc cài bản Ubuntu Desktop (có chế độ tiết kiệm điện riêng) |
 | Script báo `$'\r': command not found` | File bị đổi xuống dòng sang CRLF trên Windows; clone lại repo (`.gitattributes` giữ LF) |
+| Script báo `Permission denied` hoặc `Command not executable` | Bản clone trước ngày 2026-11-25 chưa có quyền chạy: `chmod +x *.sh` |
+| `incus` báo `no available cowsql leader server found` | Hai laptop đang tắt, ngủ hoặc mất mạng, nên cụm mất quorum: bật lại một máy |
 | Không tạo được VM | Chưa bật Virtualization trong BIOS (`/dev/kvm` không có) |
 | Join cụm báo lỗi chứng chỉ hoặc token | Token đã dùng hoặc hết hạn: tạo token mới bằng `incus cluster add` |
 | Đĩa chậm | Pool ZFS đang dùng file loop; chuyển sang phân vùng riêng khi cài lại được |

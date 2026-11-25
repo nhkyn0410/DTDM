@@ -1,6 +1,6 @@
 # ADR-0003: Hạ tầng gồm 3 laptop chạy thẳng Ubuntu Server 24.04
 
-- Trạng thái: Đề xuất, chờ cấu hình thật của 3 laptop
+- Trạng thái: Đề xuất, chờ cấu hình thật của 3 laptop. Phần hệ điều hành và lưu trữ được đề xuất thay bằng [ADR-0006](0006-node-trong-wsl2.md) (node chạy trong WSL2, pool btrfs).
 - Ngày: 2026-11-25
 
 ## Bối cảnh

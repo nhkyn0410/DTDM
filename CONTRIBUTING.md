@@ -26,6 +26,7 @@ Theo [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix
 - Truy cập tài nguyên của tenant phải qua `tenancy.check_access`. Mỗi endpoint mới cần một test chứng minh tenant khác nhận 404.
 - Không commit bí mật: chứng chỉ và khoá để trong `secrets/` (đã có trong `.gitignore`), cấu hình để trong `.env`.
 - Script shell giữ xuống dòng kiểu LF (`.gitattributes` đã ép); trên Windows đừng mở và lưu lại bằng trình soạn thảo đổi sang CRLF.
+- Sửa script trong `infra/node/` thì chạy lại cụm ảo trước khi mở PR: `lab.sh up` rồi `smoke.sh all` ([docs/dev-incus-wsl.md](docs/dev-incus-wsl.md#cụm-ảo-3-node)). Script mới cần quyền chạy trong git: `git add --chmod=+x <file>`.
 
 ## Đổi schema database
 

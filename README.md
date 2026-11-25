@@ -14,11 +14,11 @@ Nền tảng điện toán đám mây đa người thuê chạy trên cụm Incu
 | Vòng đời instance qua operation bất đồng bộ, scheduler spread/binpack | Chạy được với cụm giả lập |
 | Metering theo giây, credit, tự khoá khi hết credit | Chạy được, có test |
 | Chặn truy cập chéo tenant (trả 404, ghi audit) | Chạy được, có test |
-| Driver Incus (REST API qua TLS client cert) | Đã chạy trên Incus 6.0 một node trong WSL2 (tạo, dừng, chạy lại, xoá); phần cụm nhiều node **chưa thử trên laptop** |
+| Driver Incus (REST API qua TLS client cert) | Đã chạy trên Incus 6.0 một node trong WSL2, và trên cụm ảo 3 VM với Incus 7.6 (dàn 3 node, evacuate, restore, chuyển instance); **chưa thử trên laptop thật** |
 | URL công khai cho container: `https://<tên>-<6 ký tự>.vexenhanh.id.vn` (proxy device + Traefik) | Chạy được trên staging qua Cloudflare → Traefik → proxy device → container |
 | Alembic migration, reconciler đối chiếu database với Incus, sao lưu database hằng ngày | Chạy được, có test. Đã thử trên staging: nhận database cũ mà không mất dữ liệu, phát hiện `incus stop`/`start` làm ngoài minicloud, tự phục hồi khi API bị kill giữa lúc tạo máy |
-| Green cloud: planner gom tải, exporter đo điện (RAPL, pin), Wake-on-LAN | Đã viết, có test; chưa nối phần thực thi |
-| Script dựng cụm 3 laptop | Đã viết; **chưa chạy trên laptop thật** |
+| Green cloud: planner gom tải, exporter đo điện (RAPL, pin), Wake-on-LAN | Đã viết, có test. Planner không để quá 1 trong 3 laptop ngủ, để giữ quorum của cụm (đã thử trên cụm ảo); chưa nối phần thực thi |
+| Script dựng cụm 3 laptop | Đã chạy trọn trên cụm ảo 3 VM trong WSL (`infra/lab`, smoke test đạt); **chưa chạy trên laptop thật** |
 | Cổng vào public: Cloudflare Tunnel với `vexenhanh.id.vn` ([ADR-0005](docs/adr/0005-ten-mien-va-cong-vao.md)) | Đã dựng trên laptop-1 tạm (tunnel `minicloud-wsl`); có [hướng dẫn](infra/edge/README.md) |
 | Portal web, Keycloak, OVN, autoscaling, object storage | Chưa làm (xem [kế hoạch tuần 1–2](docs/plan/tuan-1-2.md)) |
 
@@ -36,7 +36,7 @@ src/minicloud/
   reconciler.py sửa database theo những gì Incus thật sự đang chạy
   migrate.py    nâng schema khi khởi động; backup.py sao lưu SQLite
 tests/          pytest, chạy hoàn toàn trên máy dev
-infra/          script biến 3 laptop thành cụm Incus, cấu hình cổng vào public
+infra/          script biến 3 laptop thành cụm Incus, cụm ảo để thử script (lab/), cổng vào public
 deploy/         docker compose cho PostgreSQL, Prometheus, Grafana khi phát triển
 docs/           ADR, kiến trúc, threat model, kế hoạch
 portal/         web console (vai trò 5 bắt đầu từ đây)
@@ -87,7 +87,7 @@ Xem [docs/dev-incus-wsl.md](docs/dev-incus-wsl.md): dựng Incus một node tron
 ## Tài liệu
 
 - [Kiến trúc](docs/architecture.md): mô hình tài nguyên, luồng tạo instance, cách tính tiền.
-- [Quyết định kiến trúc (ADR)](docs/adr/): Incus, Python/FastAPI, hạ tầng 3 laptop, Green cloud, tên miền và cổng vào.
+- [Quyết định kiến trúc (ADR)](docs/adr/): Incus, Python/FastAPI, hạ tầng 3 laptop, Green cloud, tên miền và cổng vào, node chạy trong WSL2 (ADR-0006, đang đề xuất).
 - [Threat model](docs/threat-model.md): các mối đe doạ của môi trường đa người thuê.
 - [Kế hoạch tuần 1–2](docs/plan/tuan-1-2.md): việc của từng vai trò để qua mốc 1.
 - [Cách đóng góp](CONTRIBUTING.md): nhánh, review, quy ước commit.

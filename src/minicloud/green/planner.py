@@ -44,6 +44,9 @@ class PlannerConfig:
     max_fill: float = 0.8  # keep 20% headroom on every awake laptop
     min_awake: int = 1
     pinned: frozenset[str] = frozenset()  # never sleep, e.g. the laptop running the control plane
+    # Members of the Incus cluster, asleep ones included; 0 counts the nodes given to the planner.
+    # See awake_floor: it decides how many of them may sleep at once.
+    cluster_size: int = 0
     low_watermark: float = 0.3  # consolidate below this fill level
     high_watermark: float = 0.8  # wake a laptop above it
 
@@ -60,6 +63,17 @@ class ConsolidationPlan:
     @property
     def watts_saved(self) -> float:
         return round(self.watts_before - self.watts_after, 2)
+
+
+def awake_floor(cluster_size: int) -> int:
+    """Fewest laptops that must stay awake for the Incus cluster to keep working.
+
+    Incus keeps the cluster database on up to three voting members and needs a majority of them
+    to manage anything. On the lab cluster, two of three laptops asleep left Incus answering
+    "no available cowsql leader server found" to every call until one woke up. The planner does
+    not know which members vote, so from three members on it lets at most one laptop sleep.
+    """
+    return cluster_size - 1 if cluster_size >= 3 else 1
 
 
 def node_power(node: PlanNode, cpu_util: float) -> float:
@@ -145,7 +159,8 @@ def plan_consolidation(
         key=lambda n: (n.name not in cfg.pinned, not n.awake, -load[n.name], n.idle_watts, n.name),
     )
     pinned_present = sum(1 for n in nodes if n.name in cfg.pinned)
-    first_k = min(max(cfg.min_awake, pinned_present, 1), len(order))
+    floor = awake_floor(cfg.cluster_size or len(nodes))
+    first_k = min(max(cfg.min_awake, pinned_present, floor, 1), len(order))
 
     chosen: list[PlanNode] = []
     placement: dict[str, str] | None = None

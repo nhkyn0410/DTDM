@@ -15,41 +15,69 @@ def small(instance_id: str, node: str) -> PlanInstance:
     return PlanInstance(instance_id, node, vcpus=1, memory_mib=1024)
 
 
-def test_light_load_is_packed_onto_one_laptop():
+def test_light_load_lets_one_laptop_sleep():
     plan = plan_consolidation(
         laptops(), [small("a", "laptop-1"), small("b", "laptop-2"), small("c", "laptop-3")]
     )
-    assert plan.keep_awake == ["laptop-1"]
-    assert sorted(plan.to_sleep) == ["laptop-2", "laptop-3"]
-    assert {(m.instance_id, m.target) for m in plan.migrations} == {
-        ("b", "laptop-1"),
-        ("c", "laptop-1"),
-    }
+    assert plan.keep_awake == ["laptop-1", "laptop-2"]
+    assert plan.to_sleep == ["laptop-3"]
+    assert [(m.instance_id, m.target) for m in plan.migrations] == [("c", "laptop-1")]
     assert plan.watts_after < plan.watts_before
 
 
-def test_the_busiest_laptop_is_kept_so_fewer_instances_move():
+def test_at_most_one_of_three_laptops_sleeps_so_the_cluster_keeps_quorum():
+    # Found on the lab cluster: with two of three members asleep, Incus answers
+    # "no available cowsql leader server found" to every call.
+    cfg = PlannerConfig(pinned=frozenset({"laptop-1"}))
+    plan = plan_consolidation(laptops(), [], cfg)  # nothing to run at all
+    assert len(plan.keep_awake) == 2
+    assert plan.keep_awake[0] == "laptop-1"
+    assert len(plan.to_sleep) == 1
+
+
+def test_no_second_laptop_sleeps_while_one_already_does():
+    # laptop-3 sleeps, so Incus reports only two members with capacity.
+    awake = [PlanNode(f"laptop-{i}", vcpus=8, memory_mib=16384) for i in (1, 2)]
+    cfg = PlannerConfig(pinned=frozenset({"laptop-1"}), cluster_size=3)
+    plan = plan_consolidation(awake, [small("a", "laptop-2")], cfg)
+    assert plan.keep_awake == ["laptop-1", "laptop-2"]
+    assert plan.to_sleep == []
+
+
+def test_two_laptops_can_be_packed_onto_one():
+    # A two-member cluster keeps its database on one member (laptop-1, the pinned one).
+    two = laptops()[:2]
+    plan = plan_consolidation(two, [small("a", "laptop-2")])
+    assert plan.keep_awake == ["laptop-2"]  # the busier one: nothing moves
+    assert plan.to_sleep == ["laptop-1"]
+
+
+def test_the_busiest_laptops_are_kept_so_fewer_instances_move():
     instances = [small(x, "laptop-2") for x in "abc"] + [small("d", "laptop-3")]
     plan = plan_consolidation(laptops(), instances)
-    assert plan.keep_awake == ["laptop-2"]
-    assert [m.instance_id for m in plan.migrations] == ["d"]
+    assert plan.keep_awake == ["laptop-2", "laptop-3"]
+    assert plan.to_sleep == ["laptop-1"]
+    assert plan.migrations == []
 
 
 def test_a_pinned_laptop_never_sleeps():
     cfg = PlannerConfig(pinned=frozenset({"laptop-1"}))
-    plan = plan_consolidation(laptops(), [small("a", "laptop-3")], cfg)
+    two = laptops()[:2]
+    plan = plan_consolidation(two, [small("a", "laptop-2")], cfg)
     assert plan.keep_awake == ["laptop-1"]
-    assert "laptop-1" not in plan.to_sleep
+    assert plan.to_sleep == ["laptop-2"]
     assert plan.migrations[0].target == "laptop-1"
 
 
-def test_the_most_efficient_laptop_wins_when_load_is_equal():
+def test_the_most_efficient_laptops_win_when_load_is_equal():
     nodes = [
         PlanNode("laptop-1", 8, 16384, idle_watts=12),
         PlanNode("laptop-2", 8, 16384, idle_watts=6),
         PlanNode("laptop-3", 8, 16384, idle_watts=9),
     ]
-    assert plan_consolidation(nodes, []).keep_awake == ["laptop-2"]
+    plan = plan_consolidation(nodes, [])
+    assert plan.keep_awake == ["laptop-2", "laptop-3"]
+    assert plan.to_sleep == ["laptop-1"]
 
 
 def test_heavy_load_keeps_more_laptops_awake():

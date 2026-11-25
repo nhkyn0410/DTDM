@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
+from minicloud.drivers.base import DriverError
 from minicloud.models import User, utcnow
 from minicloud.services.metering import run_metering_tick
 
@@ -28,7 +29,7 @@ def test_nodes_show_what_each_laptop_has_given_out(signup, run_worker, session):
     assert sum(n["allocated_memory_mib"] for n in nodes) == 1024
 
 
-def test_green_plan_packs_light_load_onto_the_pinned_laptop(signup, run_worker, session):
+def test_green_plan_lets_one_laptop_sleep_and_keeps_quorum(signup, run_worker, session):
     tenant = signup()
     make_admin(session, "an@example.com")
     for i in range(3):
@@ -36,11 +37,26 @@ def test_green_plan_packs_light_load_onto_the_pinned_laptop(signup, run_worker, 
     run_worker()  # spread: one instance per laptop
 
     plan = tenant.get("/v1/admin/green/plan").json()
-    assert plan["keep_awake"] == ["laptop-1"]
-    assert sorted(plan["to_sleep"]) == ["laptop-2", "laptop-3"]
-    assert {m["target"] for m in plan["migrations"]} == {"laptop-1"}
-    assert len(plan["migrations"]) == 2
+    assert plan["keep_awake"] == ["laptop-1", "laptop-2"]  # laptop-1 is pinned
+    assert plan["to_sleep"] == ["laptop-3"]
+    assert [(m["source"], m["target"]) for m in plan["migrations"]] == [("laptop-3", "laptop-1")]
     assert plan["watts_saved"] > 0
+
+
+def test_admin_endpoints_say_when_the_cluster_does_not_answer(signup, session, driver, monkeypatch):
+    # Found on the lab cluster: without quorum, Incus fails every call and the API gave a bare 500.
+    tenant = signup()
+    make_admin(session, "an@example.com")
+
+    def no_quorum():
+        raise DriverError("Failed to begin transaction: no available cowsql leader server found")
+
+    monkeypatch.setattr(driver, "list_nodes", no_quorum)
+    for path in ("/v1/admin/nodes", "/v1/admin/green/plan"):
+        response = tenant.get(path)
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "cluster_unavailable"
+        assert "cowsql" in response.json()["error"]["message"]
 
 
 def test_a_top_up_lifts_the_suspension(signup, run_worker, session):

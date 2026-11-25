@@ -134,6 +134,7 @@ def green_plan(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) 
     Cho biết laptop nào nên ngủ, instance nào phải chuyển và tiết kiệm được bao nhiêu W.
     Chỉ đọc, chưa thực thi. Phần thực thi (chuyển instance, cho laptop ngủ) là việc của vai trò 6.
     """
+    members = driver.list_nodes()
     plan_nodes = [
         PlanNode(
             n.name,
@@ -143,7 +144,7 @@ def green_plan(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) 
             idle_watts=settings.green_idle_watts,
             max_watts=settings.green_max_watts,
         )
-        for n in driver.list_nodes()
+        for n in members
         if n.vcpus > 0  # a suspended laptop reports no capacity through Incus
     ]
     rows = db.scalars(
@@ -163,6 +164,7 @@ def green_plan(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) 
             reserved_memory_mib=settings.reserved_memory_mib,
             min_awake=settings.green_min_awake,
             pinned=settings.pinned_nodes,
+            cluster_size=len(members),  # asleep laptops count for the cluster's quorum
         ),
     )
     return GreenPlanOut(

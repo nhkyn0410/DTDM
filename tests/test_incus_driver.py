@@ -85,6 +85,8 @@ def test_create_instance_sends_limits_and_waits_for_the_operation():
     assert body["config"] == {
         "limits.cpu": "1",
         "limits.memory": "1024MiB",
+        # Found on the lab cluster: without it, evacuating a laptop stops its instances.
+        "cluster.evacuate": "migrate",
         "cloud-init.user-data": "#cloud-config\n",
     }
     assert body["devices"]["root"] == {
@@ -117,6 +119,44 @@ def test_moving_needs_a_cluster():
     driver, _ = driver_with({("GET", "/1.0/cluster"): ok({"enabled": False})})
     with pytest.raises(DriverError, match="cluster"):
         driver.move_instance("mc-1", "x", "laptop-2")
+
+
+def test_moving_stops_moves_starts_and_waits_for_the_new_address(monkeypatch):
+    # Found on the lab cluster (Incus 7.6): right after the move the instance has no address yet.
+    monkeypatch.setattr("minicloud.drivers.incus.time.sleep", lambda _: None)
+    moved = {"done": False, "polls": 0}
+
+    def info(request):
+        return ok({"name": "web-abc", "location": "laptop-3" if moved["done"] else "laptop-2"})
+
+    def state(request):
+        if not moved["done"]:
+            return ok(RUNNING)
+        moved["polls"] += 1
+        return ok(RUNNING if moved["polls"] > 1 else {"status": "Running", "network": {}})
+
+    def move(request):
+        moved["done"] = True
+        return accepted("op-move")
+
+    driver, calls = driver_with(
+        {
+            ("GET", "/1.0/cluster"): ok({"enabled": True}),
+            ("GET", "/1.0/instances/web-abc"): info,
+            ("GET", "/1.0/instances/web-abc/state"): state,
+            ("PUT", "/1.0/instances/web-abc/state"): accepted("op-state"),
+            ("GET", "/1.0/operations/op-state/wait"): ok({"status": "Success"}),
+            ("POST", "/1.0/instances/web-abc"): move,
+            ("GET", "/1.0/operations/op-move/wait"): ok({"status": "Success"}),
+        }
+    )
+    runtime = driver.move_instance("mc-1", "web-abc", "laptop-3")
+    assert (runtime.node, runtime.status, runtime.ip) == ("laptop-3", "Running", "10.1.2.3")
+    post = next(c for c in calls if c.method == "POST")
+    assert post.url.params["target"] == "laptop-3"
+    assert json.loads(post.content) == {"name": "web-abc", "migration": True}
+    actions = [json.loads(c.content)["action"] for c in calls if c.method == "PUT"]
+    assert actions == ["stop", "start"]
 
 
 def test_a_failed_operation_becomes_a_driver_error():
