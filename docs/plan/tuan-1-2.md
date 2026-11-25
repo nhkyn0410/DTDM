@@ -15,6 +15,7 @@ Ngày 2026-11-25, hai điều kiện (tạo máy thật qua API; mở app qua HT
 ## Vai trò 1: trưởng nhóm, hạ tầng
 
 - [ ] Ghi cấu hình 3 laptop vào `docs/hardware.md`
+  - laptop-1 đã điền ngày 2026-11-25. laptop-2 và laptop-3 làm theo [kiem-tra-laptop.md](../kiem-tra-laptop.md); agent như Codex làm thay được.
 - [ ] Cài Ubuntu Server 24.04 lên 3 laptop (nếu được, chừa một phân vùng trống cho ZFS)
 - [ ] Đặt IP cố định bằng DHCP reservation trên router
 - [ ] Chạy các script trong `infra/node` theo [infra/README.md](../../infra/README.md)
@@ -56,6 +57,7 @@ Ngày 2026-11-25, hai điều kiện (tạo máy thật qua API; mở app qua HT
 
 - [ ] Cài exporter (`infra/node/40-install-exporter.sh`) trên 3 laptop; kiểm tra RAPL có số
 - [ ] Đo P_idle và P_max của từng laptop bằng `stress-ng`, cả lúc cắm sạc lẫn lúc rút sạc; ghi vào `docs/hardware.md` và `.env`
+  - Máy còn chạy Windows thì đo lúc rút sạc bằng `infra/check/check-laptop.ps1 -MeasurePower`. Lúc cắm sạc cần ổ cắm đo điện.
 - [ ] Dựng Prometheus và Grafana (`docker compose -f deploy/docker-compose.dev.yml --profile monitoring up -d`); làm dashboard công suất 3 laptop
 - [ ] Thử suspend và Wake-on-LAN bằng tay trên từng laptop; ghi lại thời gian ngủ và thời gian thức dậy
 

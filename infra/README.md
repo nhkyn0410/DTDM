@@ -4,6 +4,7 @@ Các script trong `infra/node/` chưa chạy trên laptop thật. Chạy lần l
 
 ## Chuẩn bị
 
+- Kiểm tra từng laptop và điền [docs/hardware.md](../docs/hardware.md) theo [docs/kiem-tra-laptop.md](../docs/kiem-tra-laptop.md). Trên Windows, `infra/check/check-laptop.ps1` làm việc này, kể cả đo điện qua pin.
 - USB cài Ubuntu Server 24.04 LTS.
 - Trong BIOS của mỗi laptop: bật Virtualization (VT-x hoặc AMD-V) và Wake-on-LAN nếu có.
 - Một switch và 3 dây mạng. Nếu laptop không có cổng LAN thì dùng adapter USB-LAN, hoặc tạm dùng Wi-Fi.

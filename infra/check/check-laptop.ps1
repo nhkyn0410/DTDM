@@ -12,6 +12,7 @@ Thêm -MeasurePower sau khi đã rút sạc để đo điện của cả máy qu
 một quãng chạy hết mọi luồng CPU. Kết quả là hai ô "rút sạc" của bảng số đo điện năng.
 
 Chạy được trên Windows PowerShell 5.1 và PowerShell 7. Hướng dẫn: docs/kiem-tra-laptop.md.
+File phải lưu dạng UTF-8 có BOM: thiếu BOM, Windows PowerShell 5.1 đọc sai chữ tiếng Việt.
 
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File infra\check\check-laptop.ps1 -Node laptop-2
@@ -166,10 +167,80 @@ function Read-RaplWatts([string]$Path) {
     return [double]$value / 1000.0   # bộ đếm tính bằng mW
 }
 
-function Read-CpuPercent {
-    return Invoke-Safely {
-        [double](Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime
+function Initialize-Native {
+    # Vài hàm Windows mà PowerShell không có sẵn. Máy nào chặn Add-Type thì script vẫn chạy,
+    # chỉ thiếu phần ngủ/thức, mức dùng CPU và phần đo điện.
+    if ('MinicloudNative' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
+
+public static class MinicloudNative
+{
+    [DllImport("powrprof.dll")]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool GetPwrCapabilities([Out] byte[] capabilities);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetSystemTimes(out long idle, out long kernel, out long user);
+
+    public static volatile int Sink;
+
+    // SYSTEM_POWER_CAPABILITIES (76 byte): byte 5 = SystemS3, byte 6 = SystemS4,
+    // byte 20 = AoAc (Modern Standby), byte 23 = AoAcConnectivitySupported.
+    public static byte[] PowerCapabilities()
+    {
+        var buffer = new byte[76];
+        return GetPwrCapabilities(buffer) ? buffer : null;
     }
+
+    // { thời gian CPU nhàn, tổng thời gian CPU } tính bằng 100 ns; kernel time đã gồm thời gian nhàn.
+    public static long[] CpuTimes()
+    {
+        long idle, kernel, user;
+        return GetSystemTimes(out idle, out kernel, out user) ? new long[] { idle, kernel + user } : null;
+    }
+
+    // Chạy hết mọi luồng CPU bằng phép tính số thực trong 'seconds' giây, rồi tự dừng.
+    public static int BurnCpu(int seconds)
+    {
+        long until = Stopwatch.GetTimestamp() + (long)seconds * Stopwatch.Frequency;
+        int count = Environment.ProcessorCount;
+        for (int i = 0; i < count; i++)
+        {
+            var worker = new Thread(() =>
+            {
+                double x = 1.0;
+                while (Stopwatch.GetTimestamp() < until)
+                {
+                    for (int k = 0; k < 100000; k++) { x = Math.Sqrt(x + k); }
+                }
+                Sink = (int)x;
+            });
+            worker.IsBackground = true;
+            worker.Priority = ThreadPriority.BelowNormal;
+            worker.Start();
+        }
+        return count;
+    }
+}
+'@
+}
+
+function Read-CpuTimes {
+    if (-not $script:nativeReady) { return $null }
+    return Invoke-Safely { , [MinicloudNative]::CpuTimes() }
+}
+
+function Get-CpuPercent($Before, $After) {
+    # Phần trăm thời gian CPU bận giữa hai lần đọc Read-CpuTimes.
+    if (-not $Before -or -not $After) { return $null }
+    $total = [double]($After[1] - $Before[1])
+    if ($total -le 0) { return $null }
+    return 100.0 * (1 - [double]($After[0] - $Before[0]) / $total)
 }
 
 function Read-BatteryStatus {
@@ -213,33 +284,13 @@ function Get-BatteryCapacity {
 }
 
 function Get-PowerCapabilities {
-    # GetPwrCapabilities trả về SYSTEM_POWER_CAPABILITIES (76 byte): byte 5 là SystemS3,
-    # byte 6 là SystemS4 (ngủ đông), byte 20 là AoAc (Modern Standby), byte 23 là AoAc có giữ mạng.
-    if (-not ('MinicloudPowerCaps' -as [type])) {
-        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-
-public static class MinicloudPowerCaps
-{
-    [DllImport("powrprof.dll")]
-    [return: MarshalAs(UnmanagedType.U1)]
-    private static extern bool GetPwrCapabilities([Out] byte[] capabilities);
-
-    public static byte[] Read()
-    {
-        var buffer = new byte[76];
-        return GetPwrCapabilities(buffer) ? buffer : null;
-    }
-}
-'@
-    }
-    $bytes = [MinicloudPowerCaps]::Read()
+    if (-not $script:nativeReady) { return $null }
+    $bytes = [MinicloudNative]::PowerCapabilities()
     if (-not $bytes) { return $null }
     return [pscustomobject]@{
-        S3                = [bool]$bytes[5]
-        S4                = [bool]$bytes[6]
-        ModernStandby     = [bool]$bytes[20]
+        S3                  = [bool]$bytes[5]
+        S4                  = [bool]$bytes[6]
+        ModernStandby       = [bool]$bytes[20]
         StandbyKeepsNetwork = [bool]$bytes[23]
     }
 }
@@ -269,6 +320,9 @@ function Get-ToolVersion([string]$Name) {
 
 $report = New-Object System.Collections.Generic.List[string]
 function Add-Line([string]$Text = '') { $script:report.Add($Text) }
+
+$nativeReady = $false
+try { Initialize-Native; $nativeReady = $true } catch { }
 
 # ---------------------------------------------------------------- Máy, CPU, RAM
 
@@ -459,12 +513,13 @@ $virtCell = if ($hypervisor -or $virtFirmware) { 'Có, đã bật' } elseif ($vi
 
 $raplPath = Find-RaplCounter
 $raplNow = $null
+$cpuBefore = Read-CpuTimes
 if ($raplPath) {
     $readings = @(1..3 | ForEach-Object { Read-RaplWatts $raplPath } | Where-Object { $null -ne $_ })
     $raplNow = Get-Average $readings
 }
+$cpuNow = Get-CpuPercent $cpuBefore (Read-CpuTimes)
 $raplCell = if ($raplPath) { 'Có' } else { 'Chưa thấy trên Windows' }
-$cpuNow = Read-CpuPercent
 
 $hasBattery = $null -ne (Read-ChargePercent)
 $capacity = if ($hasBattery) { Get-BatteryCapacity } else { $null }
@@ -665,49 +720,18 @@ if ($null -ne $startPercent -and $startPercent -lt 40) {
     exit 2
 }
 
-if (-not ('MinicloudBurn' -as [type])) {
-    Add-Type -TypeDefinition @'
-using System;
-using System.Diagnostics;
-using System.Threading;
-
-public static class MinicloudBurn
-{
-    public static volatile int Sink;
-
-    // Chạy hết mọi luồng CPU bằng phép tính số thực trong 'seconds' giây, rồi tự dừng.
-    public static int Start(int seconds)
-    {
-        long until = Stopwatch.GetTimestamp() + (long)seconds * Stopwatch.Frequency;
-        int count = Environment.ProcessorCount;
-        for (int i = 0; i < count; i++)
-        {
-            var worker = new Thread(() =>
-            {
-                double x = 1.0;
-                while (Stopwatch.GetTimestamp() < until)
-                {
-                    for (int k = 0; k < 100000; k++) { x = Math.Sqrt(x + k); }
-                }
-                Sink = (int)x;
-            });
-            worker.IsBackground = true;
-            worker.Priority = ThreadPriority.BelowNormal;
-            worker.Start();
-        }
-        return count;
-    }
-}
-'@
+if (-not $nativeReady) {
+    Write-Output 'Không đo được: PowerShell trên máy này chặn Add-Type, nên script không tạo được tải CPU.'
+    exit 2
 }
 
 function Measure-Phase([string]$Label, [int]$Seconds, [int]$SkipSeconds) {
-    # Đọc pin, RAPL và mức dùng CPU mỗi 5 giây; bỏ qua $SkipSeconds giây đầu.
+    # Đọc pin và RAPL mỗi 5 giây, bỏ qua $SkipSeconds giây đầu; mức dùng CPU tính cho cả quãng đo.
     $battery = New-Object System.Collections.Generic.List[double]
     $rapl = New-Object System.Collections.Generic.List[double]
-    $cpu = New-Object System.Collections.Generic.List[double]
     $startWh = $null
     $startAt = 0.0
+    $cpuStart = $null
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $tick = 0
     while ($clock.Elapsed.TotalSeconds -lt $Seconds) {
@@ -715,12 +739,10 @@ function Measure-Phase([string]$Label, [int]$Seconds, [int]$SkipSeconds) {
         if ($now -and $now.Online) { throw 'máy vừa được cắm sạc nên số đo không còn đúng' }
         $elapsed = $clock.Elapsed.TotalSeconds
         if ($elapsed -ge $SkipSeconds -and $now) {
-            if ($null -eq $startWh) { $startWh = $now.RemainingWh; $startAt = $elapsed }
+            if ($null -eq $startWh) { $startWh = $now.RemainingWh; $startAt = $elapsed; $cpuStart = Read-CpuTimes }
             if ($now.RateW -gt 0) { $battery.Add($now.RateW) }
             $watts = Read-RaplWatts $script:raplPath
             if ($null -ne $watts) { $rapl.Add($watts) }
-            $percent = Read-CpuPercent
-            if ($null -ne $percent) { $cpu.Add($percent) }
         }
         if ($tick % 6 -eq 0) { Write-Host ('  {0}: {1:0} s / {2} s' -f $Label, $elapsed, $Seconds) }
         $tick++
@@ -728,6 +750,7 @@ function Measure-Phase([string]$Label, [int]$Seconds, [int]$SkipSeconds) {
         if ($wait -gt 0) { Start-Sleep -Milliseconds ([int]($wait * 1000)) }
     }
     $end = Read-BatteryStatus
+    $cpuPercent = Get-CpuPercent $cpuStart (Read-CpuTimes)
     $energyW = $null
     if ($null -ne $startWh -and $end -and $end.RemainingWh -lt $startWh) {
         $energyW = ($startWh - $end.RemainingWh) * 3600 / ($clock.Elapsed.TotalSeconds - $startAt)
@@ -738,7 +761,7 @@ function Measure-Phase([string]$Label, [int]$Seconds, [int]$SkipSeconds) {
         EnergyW      = $energyW
         RaplW        = Get-Average $rapl
         RaplPeakW    = Get-Maximum $rapl
-        CpuPercent   = Get-Average $cpu
+        CpuPercent   = $cpuPercent
         Samples      = $battery.Count
     }
 }
@@ -750,7 +773,7 @@ Write-Host 'Đừng dùng máy và đừng cắm sạc cho tới khi xong.'
 try {
     $null = Measure-Phase -Label 'ổn định' -Seconds 30 -SkipSeconds 30
     $idle = Measure-Phase -Label 'nhàn' -Seconds $IdleSeconds -SkipSeconds 0
-    $workers = [MinicloudBurn]::Start($LoadSeconds)
+    $workers = [MinicloudNative]::BurnCpu($LoadSeconds)
     $load = Measure-Phase -Label "chạy hết $workers luồng" -Seconds $LoadSeconds -SkipSeconds $warmUp
 } catch {
     Write-Output "Dừng đo: $($_.Exception.Message). Rút sạc rồi chạy lại."
