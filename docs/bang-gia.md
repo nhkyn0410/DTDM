@@ -86,17 +86,16 @@ Gói nhỏ nhất có 1 vCPU và 1 GB RAM của mỗi nhà cung cấp, quy về 
 | DigitalOcean | Basic: 1 vCPU, 1 GB, 25 GB SSD, 1 TB truyền tải | 157.800 (6 USD) | 216 | [Trang giá Droplet](https://www.digitalocean.com/pricing/droplets) |
 | AWS EC2 | t3.micro ở Singapore: 2 vCPU chỉ được chạy nền 10%, 1 GiB, chưa có ổ đĩa | 253.400 (0,0132 USD/giờ) | 347 | [DoiT, tổng hợp từ bảng giá AWS](https://www.doit.com/compute/spot/ap-southeast-1/t3.micro) |
 | Viettel IDC | T1.Base 01: 1 vCPU, 1 GB, 20 GB, chưa VAT | 129.000 | 177 | [whtop.com](https://www.whtop.com/plans/viettelidc.com.vn/147273) |
-| BizFly Cloud | Cloud VPS: 1 core, 1 GB, 20 GB SSD, chưa VAT | 95.000 | 130 | [bizflycloud.vn](https://bizflycloud.vn/en/cloud-vps) |
 
-Giá thị trường tra ngày 2026-11-25, phần lớn qua trang tổng hợp. Trước khi đưa vào báo cáo, nhóm mở trang giá chính thức của từng hãng để kiểm tra lại.
+Cả bốn trang đã mở lại để kiểm tra ngày 2026-11-25. DigitalOcean là trang chính thức; AWS và Viettel IDC là trang tổng hợp, nên trước khi nộp báo cáo, nhóm nên đối chiếu với trang giá của chính hãng. Trang giá Cloud VPS của BizFly báo 404 nên đã bỏ khỏi bảng.
 
 ### Nhận xét
 
 1. **Hoà vốn:** ở mức lấp đầy 50%, giá vốn đầy đủ là 221 đ/giờ, cao hơn giá bán 200 đ/giờ một chút. Muốn hoà vốn với WSL mặc định, cụm cần lấp đầy 55%.
 2. **Khấu hao chiếm 77% chi phí.** Laptop là cách cung cấp compute đắt: mỗi máy chỉ 16–32 GB RAM, và WSL mặc định chỉ nhận một nửa. Cách giảm giá vốn rẻ nhất là cho WSL nhiều RAM hơn (`infra/wsl/setup-windows.ps1 -WslMemoryGB`): từ 27 lên 43 suất, giá vốn giảm 37%.
 3. **Máy có sẵn thì rất rẻ:** tính theo chi phí biên, giá vốn chỉ 26–103 đ/giờ, thấp hơn mọi nhà cung cấp trong bảng. Dựng cloud cho sinh viên trên máy có sẵn là hợp lý; mua laptop mới để làm cloud thì không.
-4. **Green cloud tiết kiệm điện nhiều hơn tiết kiệm tiền:** cho laptop-3 ngủ nửa thời gian tiết kiệm 16,2 kWh mỗi tháng, khoảng 51.000 đ và 11 kg CO₂ (hệ số lưới điện 0,681 kg CO₂/kWh). Con số này bằng 18% tiền điện nhưng chỉ 2,4% tổng chi phí.
-5. **Quyết định giá:** giữ 20 credit/giờ cho s1.small. Mức này ngang DigitalOcean, cao hơn VPS trong nước, và hoà vốn ở mức lấp đầy dự kiến nếu tăng RAM cho WSL.
+4. **Green cloud tiết kiệm điện nhiều hơn tiết kiệm tiền:** cho laptop-3 ngủ nửa thời gian tiết kiệm 16,2 kWh mỗi tháng, khoảng 51.000 đ và 11 kg CO₂. Hệ số lưới điện 0,681 kg CO₂/kWh là số năm 2024 do Đại học Bách khoa Hà Nội cùng Bộ Nông nghiệp và Môi trường ước tính ([Vietnam News, 18/4/2025](https://vietnamnews.vn/environment/1716087/study-shows-coal-power-dominant-as-viet-nam-s-grid-emissions-climbed-in-2024.html)). Con số này bằng 18% tiền điện nhưng chỉ 2,4% tổng chi phí.
+5. **Quyết định giá:** giữ 20 credit/giờ cho s1.small. Mức này ngang DigitalOcean, cao hơn Viettel IDC, và hoà vốn ở mức lấp đầy dự kiến nếu tăng RAM cho WSL.
 
 ### Hạn chế
 

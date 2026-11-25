@@ -42,3 +42,8 @@ class InsufficientCredits(ApiError):
 class InvalidMonth(ApiError):
     status_code = 422
     code = "invalid_month"
+
+
+class FeatureUnavailable(ApiError):
+    status_code = 409
+    code = "unavailable"

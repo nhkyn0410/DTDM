@@ -1,6 +1,7 @@
 """`minicloud stats`: the figures the trial report needs."""
 
 import json
+import time
 from datetime import timedelta
 
 import pytest
@@ -55,3 +56,35 @@ def test_the_stats_command_prints_json(tmp_path, monkeypatch, capsys):
         get_settings.cache_clear()
     figures = json.loads(capsys.readouterr().out)
     assert figures["users"] == 0 and figures["create_seconds"] == {}
+
+
+def test_an_operation_records_how_long_the_work_took(signup, run_worker, session, driver):
+    from minicloud.models import Operation
+
+    tenant = signup()
+    tenant.create_instance()
+    slow_create = driver.create_instance
+
+    def create_slowly(spec):
+        time.sleep(0.3)  # Incus takes a while
+        return slow_create(spec)
+
+    driver.create_instance = create_slowly
+    started = utcnow()
+    run_worker(now=started)
+    with session() as db:
+        [op] = db.query(Operation).all()
+    assert (op.finished_at - op.started_at).total_seconds() >= 0.25  # Windows clock ticks
+
+
+def test_grant_credits_takes_a_negative_amount_for_the_demo(tmp_path, monkeypatch):
+    # Demo scene 5 drains an organization with a negative grant; argparse must not read "-5"
+    # as an option.
+    monkeypatch.setenv("MINICLOUD_DATABASE_URL", f"sqlite:///{tmp_path / 'cli.db'}")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(SystemExit) as stop:
+            cli.main(["grant-credits", "org_000000000000", "-5"])
+    finally:
+        get_settings.cache_clear()
+    assert "org_000000000000" in str(stop.value)  # found no such org: the number parsed fine

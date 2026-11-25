@@ -8,7 +8,7 @@ from sqlalchemy import select
 from minicloud import ingress, reconciler
 from minicloud.config import Settings
 from minicloud.drivers.base import DriverError
-from minicloud.ingress import _url
+from minicloud.ingress import server_url
 from minicloud.models import Instance, InstanceStatus, Operation, OperationStatus, User
 from minicloud.worker import sync_ingress
 
@@ -157,8 +157,8 @@ def test_customers_cannot_take_urls_down(signup, run_worker):
 
 
 def test_ipv6_node_addresses_get_brackets():
-    assert _url("::1", 20000) == "http://[::1]:20000"
-    assert _url("192.168.1.12", 20000) == "http://192.168.1.12:20000"
+    assert server_url("::1", 20000) == "http://[::1]:20000"
+    assert server_url("192.168.1.12", 20000) == "http://192.168.1.12:20000"
 
 
 def test_a_failed_create_keeps_its_port_until_it_is_deleted(

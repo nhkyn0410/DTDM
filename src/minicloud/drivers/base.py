@@ -85,6 +85,14 @@ class ComputeDriver(Protocol):
 
     def move_instance(self, project: str, name: str, target_node: str) -> InstanceRuntime: ...
 
+    def evacuate_node(self, name: str) -> None:
+        """Move every instance off a cluster member and mark it evacuated (before it sleeps)."""
+        ...
+
+    def restore_node(self, name: str) -> None:
+        """Take an evacuated member back into service."""
+        ...
+
     def start_exec(self, project: str, name: str, command: list[str], env: dict[str, str]) -> str:
         """Start a command inside a running instance, without stdin; return its id."""
         ...

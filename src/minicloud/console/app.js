@@ -30,7 +30,7 @@ const ERROR_TEXT = {
 const $ = (id) => document.getElementById(id);
 const state = {
   org: null, project: null, timer: null, meter: null, meterTimer: null, pricing: null, greenAt: 0,
-  term: null,
+  term: null, admin: false, providerAt: 0,
 };
 
 function el(tag, attrs = {}, ...children) {
@@ -108,6 +108,9 @@ function logout(clear = true) {
   clearInterval(state.meterTimer);
   state.meter = null;
   state.greenAt = 0;
+  state.providerAt = 0;
+  state.admin = false;
+  $("provider").hidden = true;
   state.term = null;
   $("terminal").hidden = true;
   $("term-output").replaceChildren();
@@ -153,6 +156,8 @@ async function enterDashboard() {
   const projects = await api("GET", `/v1/orgs/${state.org.id}/projects`);
   state.project = projects[0];
   $("who").textContent = `${me.name} · ${state.org.name}`;
+  state.admin = me.is_platform_admin === true;
+  $("provider").hidden = !state.admin;
   $("project-name").textContent = `project ${state.project.name}`;
   const owner = state.org.role === "owner";
   for (const control of $("budget-form").elements) control.disabled = !owner;
@@ -290,8 +295,14 @@ async function loadCatalog() {
   for (const f of flavors) {
     const label = `${f.name} · ${f.vcpus} vCPU · ${f.memory_mib / 1024} GB · ${fmt(f.credits_per_hour_container)} credit/giờ`;
     $("flavor").append(el("option", { value: f.name }, label));
+    $("group-flavor").append(el("option", { value: f.name }, label));
   }
   for (const image of images) $("image").append(el("option", { value: image.key }, image.title));
+  if (state.pricing && state.pricing.vms_available === false) {
+    const vm = $("create-form").querySelector("option[value=virtual-machine]");
+    vm.disabled = true;
+    vm.textContent = "Máy ảo: chưa có trên cụm này (laptop chưa bật KVM)";
+  }
 }
 
 async function refresh() {
@@ -302,6 +313,7 @@ async function refresh() {
     api("GET", `/v1/orgs/${state.org.id}/usage?limit=20`),
   ]);
   renderInstances(instances);
+  await refreshGroups();
   state.running = instances.some((i) => i.status === "running");
   renderBilling(billing);
   renderUsage(usage, instances);
@@ -311,6 +323,7 @@ async function refresh() {
   }
   if (!select.value || select.value === billing.month) await refreshStatement();
   await refreshGreen();
+  if (state.admin) await refreshProvider();
   const busy = instances.some((i) => TRANSITIONAL.has(i.status));
   state.timer = setTimeout(() => refresh().catch(showError), busy ? 2000 : 15000);
 }
@@ -363,8 +376,10 @@ function renderInstances(list) {
       actions.append(actionButton("Xoá", () => remove(inst), "danger"));
     }
     const kind = inst.type === "virtual-machine" ? "Máy ảo" : "Container";
+    const cpu = inst.status === "running" && inst.cpu_util !== null && inst.cpu_util !== undefined
+      ? ` · CPU ${fmt(inst.cpu_util * 100)}%` : "";
     const meta = el("div", { class: "meta" }, `${kind} · ${inst.flavor} · ${inst.image}`,
-      inst.ip ? ` · IP ${inst.ip}` : "");
+      inst.ip ? ` · IP ${inst.ip}` : "", cpu, inst.group_id ? " · thuộc nhóm tự co giãn" : "");
     const url = typeof inst.public_url === "string" && inst.public_url.startsWith("https://")
       ? inst.public_url : null;
     const link = url && inst.status === "running"
@@ -385,6 +400,36 @@ const TERM_EXAMPLES = [
   ["Tạo trang chào", "echo '<h1>Xin chào từ minicloud</h1>' > /var/www/html/index.html && echo 'Mở địa chỉ HTTPS của máy để xem'"],
 ];
 const TERM_KEEP = 200000; // characters of transcript kept on screen
+
+// The demo app for autoscaling is demo-app.sh next to this file, served as it is.
+
+async function refreshGroups() {
+  const groups = await api("GET", `/v1/projects/${state.project.id}/groups`);
+  const ul = $("groups");
+  ul.replaceChildren();
+  for (const g of groups) {
+    const url = typeof g.public_url === "string" && g.public_url.startsWith("https://") ? g.public_url : null;
+    const cpu = g.cpu_percent === null ? "chưa đo CPU" : `CPU trung bình ${fmt(g.cpu_percent)}%`;
+    const members = el("div", { class: "meta" }, g.members
+      .map((m) => `${m.name} ${STATUS_TEXT[m.status] || m.status}${m.cpu_percent === null ? "" : ` ${fmt(m.cpu_percent)}%`}`)
+      .join(" · ") || "chưa có máy");
+    ul.append(el("li", { class: "instance" },
+      el("div", { class: "head" },
+        el("strong", {}, g.name),
+        el("span", { class: "badge running" }, `${g.size} máy (${g.min_size}–${g.max_size})`)),
+      el("div", { class: "meta" }, `${g.flavor} · ${cpu}`),
+      url ? el("a", { class: "url", href: url, target: "_blank", rel: "noopener noreferrer" }, url.slice("https://".length)) : null,
+      members,
+      el("div", { class: "actions" }, actionButton("Xoá nhóm", () => removeGroup(g), "danger"))));
+  }
+}
+
+async function removeGroup(group) {
+  if (!window.confirm(`Xoá nhóm ${group.name} và mọi máy của nhóm?`)) return;
+  clearBanner();
+  await api("DELETE", `/v1/groups/${group.id}`);
+  await refresh();
+}
 
 function openTerminal(inst) {
   if (state.term?.inst?.id !== inst.id) $("term-output").replaceChildren();
@@ -427,6 +472,38 @@ async function runCommand(command) {
     term.busy = false;
     submit.disabled = false;
   }
+}
+
+async function refreshProvider() {
+  if (Date.now() - state.providerAt < 30000) return; // it asks Incus about every laptop
+  state.providerAt = Date.now();
+  let view;
+  try {
+    view = await api("GET", "/v1/admin/overview");
+  } catch {
+    $("provider-note").textContent = "Chưa đọc được số liệu của cụm; thử lại sau nửa phút.";
+    return;
+  }
+  const tile = (label, value, unit) => el("div", { class: "stat" },
+    el("span", { class: "label" }, label), el("span", { class: "value" }, value), el("span", { class: "unit" }, unit));
+  $("provider-stats").replaceChildren(
+    tile("Doanh thu tháng này", fmt(view.revenue_credits_month), `credit ≈ ${vnd(view.revenue_vnd_month)}`),
+    tile("Công suất cả cụm", fmt(view.cluster_watts), "W, ước tính"),
+    tile("Máy đang chạy", String(view.instances_running), `của ${view.organizations_running}/${view.organizations} tổ chức`),
+    tile("vCPU đã cấp", view.vcpu_overcommit === null ? "—" : `${fmt(view.vcpu_overcommit)}×`,
+      view.memory_allocated_percent === null ? "" : `số luồng thật; RAM đã cấp ${fmt(view.memory_allocated_percent)}%`));
+  const tbody = $("provider-nodes");
+  tbody.replaceChildren();
+  for (const n of view.nodes) {
+    const status = !n.online ? (n.asleep ? "Đang ngủ" : "Mất kết nối") : "Đang thức";
+    tbody.append(el("tr", {},
+      el("td", {}, n.name),
+      el("td", {}, status),
+      el("td", {}, `${n.allocated_vcpus}/${n.vcpus}`),
+      el("td", {}, `${fmt(n.allocated_memory_mib / 1024)}/${fmt(n.memory_mib / 1024)} GB`),
+      el("td", {}, String(n.instances))));
+  }
+  $("provider-note").textContent = `Tháng ${Number(view.month.slice(5))}/${view.month.slice(0, 4)}: ${fmt(view.energy_wh_month)} Wh điện cho máy của khách. ${view.groups} nhóm máy tự co giãn. Doanh thu là credit mô phỏng.`;
 }
 
 async function refreshGreen() {
@@ -633,6 +710,49 @@ $("term-form").addEventListener("submit", (event) => {
   if (!command) return;
   input.value = "";
   runCommand(command);
+});
+
+$("group-template").addEventListener("click", async () => {
+  const form = $("group-form").elements;
+  try {
+    const resp = await fetch("demo-app.sh", { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    form.script.value = await resp.text();
+    if (!form.name.value) form.name.value = "web";
+  } catch (err) {
+    banner(`Không tải được app mẫu: ${err.message}`, "error");
+  }
+});
+
+$("group-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearBanner();
+  const formNode = event.currentTarget;
+  const form = new FormData(formNode);
+  const body = {
+    name: String(form.get("name") || "").trim(),
+    min_size: Number(form.get("min_size")),
+    max_size: Number(form.get("max_size")),
+    flavor: form.get("flavor"),
+    script: String(form.get("script") || ""),
+  };
+  if (body.min_size > body.max_size) {
+    banner("Số máy ít nhất phải không lớn hơn số máy nhiều nhất.", "error");
+    return;
+  }
+  const submit = formNode.querySelector("button[type=submit]");
+  submit.disabled = true;
+  try {
+    await api("POST", `/v1/projects/${state.project.id}/groups`, body);
+    formNode.reset();
+    $("group-create").open = false;
+    banner(`Đang tạo nhóm ${body.name} với ${body.min_size} máy. Địa chỉ chung mở được khi máy đầu tiên chạy xong script.`, "info");
+    await refresh();
+  } catch (err) {
+    showError(err);
+  } finally {
+    submit.disabled = false;
+  }
 });
 
 $("term-close").addEventListener("click", () => {

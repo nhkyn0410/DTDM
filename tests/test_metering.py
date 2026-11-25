@@ -69,3 +69,18 @@ def test_running_out_of_credits_suspends_and_stops_everything(signup, run_worker
     assert billing["credits"] < 0
     assert tenant.post(f"/v1/instances/{inst_id}/start").status_code == 402
     assert tenant.create_instance("another").status_code == 402
+
+
+def test_a_negative_grant_drains_an_organization_for_the_demo(signup, run_worker, session):
+    from minicloud.models import Organization
+    from minicloud.services.metering import grant_credits
+
+    tenant = signup()
+    inst_id = tenant.create_instance().json()["instance"]["id"]
+    run_worker()
+    with session() as db:
+        grant_credits(db, db.get(Organization, tenant.org_id), -100, "demo: hết credit")
+    result = tick(session, utcnow() + timedelta(seconds=30))
+    assert result["suspended"] == 1
+    assert tenant.get(f"/v1/instances/{inst_id}").json()["status"] == "stopping"
+    assert balance(tenant)["suspended"] is True

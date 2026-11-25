@@ -108,13 +108,41 @@ Laptop đang ngủ coi như 0 W. `GET /v1/green` cho mọi người dùng xem c�
 
 Hạn chế: đây là ước tính theo mô hình tuyến tính, chưa phải số đo. Khi exporter (RAPL, pin) chạy trên cả 3 laptop, thay P ở bước 2 bằng số đo của laptop đó. Lượt đầu tiên sau khi control plane khởi động chưa có số của lượt trước, nên chỉ chia P_idle.
 
+## Cho một laptop ngủ và đánh thức (Green cloud, màn 7)
+
+Ba API cho admin, dùng khi planner (`GET /v1/admin/green/plan`) báo một laptop có thể ngủ:
+
+1. `POST /v1/admin/nodes/{tên}/evacuate`: Incus chuyển mọi máy của laptop đó sang laptop khác (máy mới tạo đều có `cluster.evacuate=migrate`). Ngay sau đó control plane đối chiếu một lượt, nên database và tuyến Traefik theo node mới. API từ chối laptop ghim, và từ chối khi số laptop còn thức sẽ dưới mức giữ quorum (cụm 3 laptop chỉ cho 1 laptop ngủ).
+2. Cho laptop đó ngủ hoặc tắt hẳn: việc của hệ điều hành, làm bằng tay hoặc bằng script trên laptop.
+3. `POST /v1/admin/nodes/{tên}/wake`: gửi gói Wake-on-LAN tới MAC trong `MINICLOUD_GREEN_NODE_MACS`, qua địa chỉ broadcast `MINICLOUD_GREEN_WOL_BROADCAST`. Khi laptop vào lại cụm, `POST /v1/admin/nodes/{tên}/restore` nhận nó lại.
+
+Mỗi bước được ghi audit (`node.evacuate`, `node.wake`, `node.restore`). Khi evacuate, Incus tự chọn laptop đích, không theo planner.
+
+## Nhóm máy tự co giãn (autoscaling)
+
+Một nhóm máy (`instance_groups`) là các container giống nhau, cùng cấu hình và cùng script khởi động, sau một địa chỉ HTTPS chung (`<tên nhóm>-<6 ký tự>.vexenhanh.id.vn`). Traefik chia request lần lượt cho các máy đang chạy của nhóm.
+
+Mỗi lượt 60 giây, sau khi ghi mức dùng CPU của từng máy (`instances.cpu_util`, lấy từ thời gian CPU của Incus như phần điện năng), worker chạy `services/groups.autoscale`:
+
+| Điều kiện | Làm gì |
+| --- | --- |
+| Ít máy hơn `min_size` | Tạo thêm cho đủ |
+| CPU trung bình của các máy đang chạy trên 70%, chưa tới `max_size`, lần đổi trước đã qua 60 giây | Thêm một máy |
+| CPU trung bình dưới 20% liên tục 3 phút, còn hơn `min_size` | Xoá máy mới nhất |
+| Một máy bị lỗi | Xoá và tạo máy thay |
+| Có máy đang được tạo | Chờ, không quyết định gì thêm |
+
+Mỗi lần đổi số máy được ghi audit `group.scale`, kèm số máy trước, sau và mức CPU. Máy mới vẫn phải qua quota của project và tổ chức phải còn credit; tới quota thì nhóm thôi lớn, không báo lỗi. Script khởi động được ghi vào máy qua cloud-init (`write_files` rồi `runcmd`), dạng chuỗi JSON nên không chèn được lệnh cloud-init khác.
+
+App mẫu để thử (`console/demo-app.sh`): mỗi request tốn khoảng 0,1 giây CPU và trang cho biết máy nào trả lời. Bắn tải bằng `infra/bench/load.py` (hoặc k6) để thấy request được chia sang máy mới.
+
 ## Cô lập giữa các tenant
 
 | Lớp | Đã có | Còn thiếu |
 | --- | --- | --- |
 | API | Kiểm tra membership ở mọi truy vấn; người ngoài nhận 404; ghi audit; mã mời; giới hạn số lần đăng ký và số lần sai key theo IP | Đăng nhập OIDC có MFA |
 | Compute | Incus project `restricted`, `limits.cpu` và `limits.memory` cho từng instance | Đo bằng thí nghiệm "Hàng xóm ồn ào" |
-| Mạng | Dùng chung `incusbr0` có NAT; ACL `minicloud-egress` chặn cổng 25 chiều ra; mỗi instance tối đa 20 Mbit/s mỗi chiều | OVN: mỗi tenant một VPC, ACL làm security group |
+| Mạng | Dùng chung `incusbr0` có NAT; port isolation: các máy không gửi gói tin thẳng cho nhau; ACL `minicloud-egress` chặn cổng 25 chiều ra; mỗi instance tối đa 20 Mbit/s mỗi chiều | OVN: mỗi tenant một VPC (máy cùng tenant nói chuyện được với nhau), ACL làm security group |
 | cloud-init | SSH key được kiểm tra chặt và ghi dạng chuỗi JSON | Metadata service có token |
 
 ACL nằm trên bridge chứ không trên NIC của từng instance, vì Incus 6.0 không nhận `security.acls` trên NIC kiểu bridged. Bridge phải có thêm `security.acls.default.egress.action=allow` và `security.acls.default.ingress.action=allow`; thiếu hai khoá này thì bridge chặn mọi lưu lượng mà ACL không cho phép. Control plane tự đặt cả ba khoá, và giữ nguyên các khoá khác của bridge.

@@ -63,12 +63,16 @@ def settle_instance(db: Session, inst: Instance, now: datetime) -> int:
 
 
 def run_metering_tick(
-    db: Session, now: datetime, power: dict[str, float] | None = None
+    db: Session,
+    now: datetime,
+    power: dict[str, float] | None = None,
+    util: dict[str, float] | None = None,
 ) -> dict[str, int]:
     """Bill every instance up to now, then suspend broke organizations and check budgets.
 
     `power` maps instance ids to their share of their laptop's power over the last interval
-    (green.energy); it is recorded before billing so the interval's Wh uses it.
+    (green.energy); it is recorded before billing so the interval's Wh uses it. `util` maps them
+    to the share of their vCPUs they kept busy, which autoscaling and the console read.
     """
     instances = db.scalars(
         select(Instance).where(
@@ -78,6 +82,9 @@ def run_metering_tick(
     if power is not None:
         for inst in instances:
             inst.power_watts = power.get(inst.id) if inst.status in COMPUTE_STATUSES else None
+    if util is not None:
+        for inst in instances:
+            inst.cpu_util = util.get(inst.id) if inst.status in COMPUTE_STATUSES else None
     charged = sum(settle_instance(db, inst, now) for inst in instances)
     suspended = suspend_broke_orgs(db)
     warned = statements.check_budgets(db, now)

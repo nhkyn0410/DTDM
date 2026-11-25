@@ -14,7 +14,13 @@ Người dùng đọc [hướng dẫn](https://cloud.vexenhanh.id.vn/console/huo
   4. Xem sao kê, tải CSV.
   5. Dừng rồi xoá máy.
 - [ ] Lập kênh hỗ trợ (nhóm chat) và lịch trực luân phiên trong nhóm.
-- [ ] Dựng Uptime Kuma trên một máy **ngoài cụm**, kiểm tra `https://cloud-api.vexenhanh.id.vn/healthz` mỗi phút. Đây là số đo độ sẵn sàng cho SLA 99%.
+- [ ] Dựng Uptime Kuma trên một máy **ngoài cụm**, kiểm tra `https://cloud-api.vexenhanh.id.vn/healthz` mỗi phút. Đây là số đo độ sẵn sàng cho SLA 99%. Trên máy có Docker (ví dụ laptop-2 đã có Docker Desktop):
+
+  ```
+  docker run -d --restart=always -p 3001:3001 -v uptime-kuma:/app/data --name uptime-kuma louislam/uptime-kuma:1
+  ```
+
+  Mở `http://localhost:3001`, tạo tài khoản quản trị, thêm monitor kiểu HTTP(s) tới địa chỉ trên với chu kỳ 60 giây, và thêm một monitor nữa cho app `hello`. Máy này phải luôn bật trong suốt đợt chạy thử; ngắt máy thì số liệu có khoảng trống.
 - [ ] Lấy mã mời: `sudo grep INVITE_CODE /etc/minicloud/minicloud.env`. Chỉ gửi riêng cho người được mời.
 - [ ] Cấp quyền admin cho người trực: `sudo minicloud-admin make-admin <email>` (người đó đăng ký trước).
 

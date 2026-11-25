@@ -141,6 +141,32 @@ class ApiKey(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class InstanceGroup(Base):
+    """Identical containers behind one URL; the worker adds or removes members by CPU use."""
+
+    __tablename__ = "instance_groups"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: new_id("grp"))
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    flavor: Mapped[str] = mapped_column(String(32))
+    image: Mapped[str] = mapped_column(String(64))
+    min_size: Mapped[int] = mapped_column(Integer)
+    max_size: Mapped[int] = mapped_column(Integer)
+    cpu_high: Mapped[float] = mapped_column(Float, default=0.7)  # add a member above this
+    cpu_low: Mapped[float] = mapped_column(Float, default=0.2)  # remove one below this
+    script: Mapped[str] = mapped_column(Text, default="")  # run once in every new member
+    public_hostname: Mapped[str | None] = mapped_column(String(253), nullable=True)
+    last_scaled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    low_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # CPU below low
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    @property
+    def public_url(self) -> str | None:
+        return f"https://{self.public_hostname}" if self.public_hostname else None
+
+
 class Instance(Base):
     __tablename__ = "instances"
 
@@ -170,6 +196,9 @@ class Instance(Base):
     public_blocked: Mapped[bool] = mapped_column(Boolean, default=False)  # admin kill switch
     # Its share of its laptop's power at the last metering tick (green.energy); None: not known.
     power_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Share of its vCPUs it kept busy over the last metering tick (0..1); None: not known.
+    cpu_util: Mapped[float | None] = mapped_column(Float, nullable=True)
+    group_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
     @property
     def public_url(self) -> str | None:

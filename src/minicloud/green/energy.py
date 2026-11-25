@@ -28,6 +28,7 @@ class EnergyMeter:
 
     def __init__(self) -> None:
         self._last: dict[str, tuple[float, float]] = {}  # instance id -> (time, cpu seconds)
+        self.util: dict[str, float] = {}  # instance id -> share of its vCPUs kept busy (0..1)
 
     def estimate(
         self,
@@ -55,6 +56,11 @@ class EnergyMeter:
         running = {inst.id for inst in instances}
         for gone in set(self._last) - running:
             del self._last[gone]
+        self.util = {
+            inst.id: min(busy[inst.id] / inst.vcpus, 1.0)
+            for inst in instances
+            if inst.id in busy and inst.vcpus > 0
+        }
 
         by_node: dict[str, list[RunningInstance]] = {}
         for inst in instances:

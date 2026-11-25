@@ -5,13 +5,21 @@ from fastapi import APIRouter, Request
 
 from .. import audit
 from ..drivers.base import ComputeDriver
-from ..errors import Conflict, NotFound
-from ..models import Instance, InstanceStatus, Operation, OperationAction, Project, Role
+from ..errors import Conflict, FeatureUnavailable, NotFound
+from ..models import (
+    Instance,
+    InstanceStatus,
+    InstanceType,
+    Operation,
+    OperationAction,
+    Project,
+    Role,
+)
 from ..ratelimit import TooManyRequests
 from ..schemas import ExecIn, ExecOut, InstanceCreated, InstanceIn, InstanceOut, OperationOut
 from ..services import instances as service
 from ..services import tenancy
-from .deps import DB, CurrentUser, Driver
+from .deps import DB, AppSettings, CurrentUser, Driver
 
 router = APIRouter(tags=["instances"])
 
@@ -36,10 +44,12 @@ def list_instances(project_id: str, user: CurrentUser, db: DB) -> list[Instance]
 
 @router.post("/projects/{project_id}/instances", response_model=InstanceCreated, status_code=202)
 def create_instance(
-    project_id: str, body: InstanceIn, user: CurrentUser, db: DB
+    project_id: str, body: InstanceIn, user: CurrentUser, db: DB, settings: AppSettings
 ) -> InstanceCreated:
     """Tạo instance. Trả về ngay (202) kèm operation; theo dõi bằng `GET /v1/operations/{id}`."""
     project = tenancy.get_project(db, user, project_id, Role.member)
+    if body.type == InstanceType.vm and not settings.allow_vms:
+        raise FeatureUnavailable("virtual machines are not available on this cluster yet (no KVM)")
     inst, op = service.create_instance(
         db,
         user,

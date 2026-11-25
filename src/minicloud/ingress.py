@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings
 from .drivers.base import ComputeDriver
-from .models import Instance, InstanceStatus, InstanceType
+from .models import Instance, InstanceGroup, InstanceStatus, InstanceType
 from .scheduler import NoCapacityError
 
 log = logging.getLogger("minicloud.ingress")
@@ -54,7 +54,7 @@ def assign_hostname(inst: Instance, settings: Settings) -> None:
         inst.public_hostname = f"{inst.incus_name}.{settings.public_domain}"
 
 
-def _url(address: str, port: int) -> str:
+def server_url(address: str, port: int) -> str:
     host = f"[{address}]" if ":" in address else address  # IPv6 literals need brackets
     return f"http://{host}:{port}"
 
@@ -73,6 +73,7 @@ def build_routes(db: Session, node_addresses: dict[str, str]) -> dict[str, Any]:
         )
         .order_by(Instance.incus_name)
     )
+    group_servers: dict[str, list[dict[str, str]]] = {}
     for inst in rows:
         address = node_addresses.get(inst.node or "")
         if not address:
@@ -83,7 +84,30 @@ def build_routes(db: Session, node_addresses: dict[str, str]) -> dict[str, Any]:
             "entryPoints": [ENTRYPOINT],
             "service": name,
         }
-        services[name] = {"loadBalancer": {"servers": [{"url": _url(address, inst.public_port)}]}}
+        services[name] = {
+            "loadBalancer": {"servers": [{"url": server_url(address, inst.public_port)}]}
+        }
+        if inst.group_id:
+            group_servers.setdefault(inst.group_id, []).append(
+                {"url": server_url(address, inst.public_port)}
+            )
+    groups = db.scalars(
+        select(InstanceGroup)
+        .where(InstanceGroup.deleted_at.is_(None), InstanceGroup.public_hostname.is_not(None))
+        .order_by(InstanceGroup.id)
+    )
+    for group in groups:
+        servers = group_servers.get(group.id)
+        if not servers:
+            continue  # no member runs yet
+        name = f"group-{group.id}"
+        routers[name] = {
+            "rule": f"Host(`{group.public_hostname}`)",
+            "entryPoints": [ENTRYPOINT],
+            "service": name,
+        }
+        # Traefik spreads requests round robin over the running members.
+        services[name] = {"loadBalancer": {"servers": servers}}
     if not routers:
         # Traefik rejects empty "routers"/"services" maps ("cannot be a standalone element")
         # and then keeps serving the previous routes: the last stopped app would answer 502.

@@ -1,14 +1,29 @@
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter
-from sqlalchemy import select
+from fastapi import APIRouter, Request
+from sqlalchemy import func, select
 
 from .. import audit, ingress, reconciler
 from ..catalog import FLAVORS
-from ..errors import NotFound
-from ..green.planner import PlanInstance, PlannerConfig, PlanNode, plan_consolidation
-from ..models import Instance, InstanceStatus, Organization, Project
+from ..errors import Conflict, NotFound
+from ..green import wol
+from ..green.planner import (
+    PlanInstance,
+    PlannerConfig,
+    PlanNode,
+    awake_floor,
+    plan_consolidation,
+)
+from ..models import (
+    Instance,
+    InstanceGroup,
+    InstanceStatus,
+    Organization,
+    Project,
+    UsageRecord,
+    utcnow,
+)
 from ..scheduler import Allocation
 from ..schemas import (
     BillingOut,
@@ -16,10 +31,12 @@ from ..schemas import (
     GreenPlanOut,
     InstanceOut,
     MigrationOut,
+    NodeActionOut,
     NodeOut,
+    OverviewOut,
     ReconcileOut,
 )
-from ..services import metering
+from ..services import green, metering, statements
 from ..services.instances import current_allocations
 from ..worker import sync_ingress
 from .billing import billing_out
@@ -123,6 +140,52 @@ def nodes(admin: AdminUser, db: DB, driver: Driver) -> list[NodeOut]:
     return result
 
 
+@router.get("/overview", response_model=OverviewOut)
+def overview(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) -> OverviewOut:
+    """Bảng điều khiển của nhà cung cấp: cấp phát, công suất, doanh thu mô phỏng, khách hàng."""
+    now = utcnow()
+    node_rows = nodes(admin, db, driver)
+    awake = [n for n in node_rows if n.online and not n.asleep]
+    threads = sum(n.vcpus for n in awake)
+    memory = sum(n.memory_mib for n in awake)
+    power = green.cluster_power(db, driver.list_nodes(), settings.node_watts)
+    month = statements.month_of(now)
+    start, _ = statements.month_bounds(month)
+    charged, energy = db.execute(
+        select(
+            func.coalesce(func.sum(UsageRecord.amount_millicredits), 0),
+            func.coalesce(func.sum(UsageRecord.energy_wh), 0.0),
+        ).where(UsageRecord.period_end > start, UsageRecord.period_end <= now)
+    ).one()
+    running = db.execute(
+        select(func.count(Instance.id), func.count(func.distinct(Project.org_id)))
+        .join(Project, Project.id == Instance.project_id)
+        .where(Instance.status == InstanceStatus.running)
+    ).one()
+    return OverviewOut(
+        as_of=now,
+        month=month,
+        nodes=node_rows,
+        vcpu_overcommit=(
+            round(sum(n.allocated_vcpus for n in awake) / threads, 2) if threads else None
+        ),
+        memory_allocated_percent=(
+            round(sum(n.allocated_memory_mib for n in awake) * 100 / memory, 1) if memory else None
+        ),
+        cluster_watts=round(sum(p.watts for p in power), 1),
+        revenue_credits_month=int(charged) / 1000,
+        revenue_vnd_month=round(int(charged) / 1000 * settings.vnd_per_credit),
+        energy_wh_month=round(float(energy), 1),
+        organizations=db.scalar(select(func.count(Organization.id))) or 0,
+        organizations_running=running[1],
+        instances_running=running[0],
+        groups=db.scalar(
+            select(func.count(InstanceGroup.id)).where(InstanceGroup.deleted_at.is_(None))
+        )
+        or 0,
+    )
+
+
 @router.get("/green/plan", response_model=GreenPlanOut)
 def green_plan(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) -> GreenPlanOut:
     """Xem trước kế hoạch gom tải cho Green cloud.
@@ -175,3 +238,94 @@ def green_plan(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) 
         watts_after=plan.watts_after,
         watts_saved=plan.watts_saved,
     )
+
+
+def _member(driver: Driver, name: str):
+    nodes = driver.list_nodes()
+    node = next((n for n in nodes if n.name == name), None)
+    if node is None:
+        raise NotFound(f"no cluster member named {name}")
+    return node, nodes
+
+
+@router.post("/nodes/{name}/evacuate", response_model=NodeActionOut)
+def evacuate_node(
+    name: str,
+    request: Request,
+    admin: AdminUser,
+    db: DB,
+    driver: Driver,
+    settings: AppSettings,
+) -> NodeActionOut:
+    """Dọn một laptop trước khi cho nó ngủ (màn 7): Incus chuyển mọi máy sang laptop khác.
+
+    Từ chối laptop ghim (chạy control plane) và mọi yêu cầu làm cụm còn ít laptop thức hơn
+    mức giữ quorum. Xong việc thì đối chiếu ngay để database và tuyến Traefik theo node mới.
+    """
+    node, nodes = _member(driver, name)
+    if name in settings.pinned_nodes:
+        raise Conflict(f"{name} runs the control plane and never sleeps")
+    awake = [n for n in nodes if n.online and not n.asleep]
+    if node in awake and len(awake) - 1 < awake_floor(len(nodes)):
+        raise Conflict("the cluster would lose quorum: wake another laptop first")
+    driver.evacuate_node(name)
+    request.app.state.green_nodes = None  # /v1/green shows the change at once
+    report = reconciler.reconcile(db, driver, settings)
+    sync_ingress(db, driver, settings)
+    audit.record(
+        db,
+        action="node.evacuate",
+        target_type="node",
+        target_id=name,
+        actor_id=admin.id,
+        detail={"moved": len(report.changes)},
+        commit=True,
+    )
+    return NodeActionOut(node=name, action="evacuate", detail=f"{len(report.changes)} changes")
+
+
+@router.post("/nodes/{name}/restore", response_model=NodeActionOut)
+def restore_node(
+    name: str,
+    request: Request,
+    admin: AdminUser,
+    db: DB,
+    driver: Driver,
+    settings: AppSettings,
+) -> NodeActionOut:
+    """Nhận lại một laptop đã thức dậy; máy mới lại được xếp lên nó."""
+    _member(driver, name)
+    driver.restore_node(name)
+    request.app.state.green_nodes = None
+    sync_ingress(db, driver, settings)
+    audit.record(
+        db,
+        action="node.restore",
+        target_type="node",
+        target_id=name,
+        actor_id=admin.id,
+        commit=True,
+    )
+    return NodeActionOut(node=name, action="restore", detail="")
+
+
+@router.post("/nodes/{name}/wake", response_model=NodeActionOut)
+def wake_node(name: str, admin: AdminUser, db: DB, settings: AppSettings) -> NodeActionOut:
+    """Gửi gói Wake-on-LAN tới laptop (MAC trong `MINICLOUD_GREEN_NODE_MACS`).
+
+    Laptop thức dậy và vào lại cụm sau vài giây tới vài phút; khi đó gọi restore.
+    """
+    mac = settings.node_mac(name)
+    if mac is None:
+        raise NotFound(f"no MAC address configured for {name}")
+    wol.wake(mac, settings.green_wol_broadcast)
+    audit.record(
+        db,
+        action="node.wake",
+        target_type="node",
+        target_id=name,
+        actor_id=admin.id,
+        detail={"mac": mac},
+        commit=True,
+    )
+    return NodeActionOut(node=name, action="wake", detail=mac)

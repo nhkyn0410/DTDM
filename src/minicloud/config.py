@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     incus_storage_pool: str = "local"
     incus_network: str = "incusbr0"
     incus_nic_limit: str = "20Mbit"  # bandwidth cap per instance, each way; "" for none
+    # Instances cannot reach one another over the shared bridge (no VPC until OVN).
+    incus_port_isolation: bool = True
+    # False where the nodes have no KVM (WSL without /dev/kvm): the API refuses VMs up front.
+    allow_vms: bool = True
+    # A new autoscaling member joins its group's URL once its app answers, waiting up to this.
+    group_ready_timeout_seconds: float = 45.0
 
     # Placement of new instances
     placement_policy: str = "spread"  # "spread" or "binpack"
@@ -66,6 +72,10 @@ class Settings(BaseSettings):
     # kg CO2 per kWh of Vietnam's grid: 0.681 in 2024 (estimate by HUST with the Ministry of
     # Agriculture and Environment); update when the ministry publishes a newer factor.
     green_grid_kg_co2_per_kwh: float = 0.681
+    # MAC of each laptop's wired card for Wake-on-LAN: "laptop-3=E4:A8:DF:D4:1E:64,..."
+    green_node_macs: str = ""
+    # Where the magic packet goes: the LAN's broadcast address (laptop-1 must be on that LAN).
+    green_wol_broadcast: str = "255.255.255.255"
 
     # Background worker
     run_worker: bool = True
@@ -95,6 +105,13 @@ class Settings(BaseSettings):
     def _check_node_watts(cls, value: str) -> str:
         parse_node_watts(value)  # a typo stops the app at startup instead of skewing every bill
         return value
+
+    def node_mac(self, node: str) -> str | None:
+        for item in self.green_node_macs.split(","):
+            name, _, mac = item.partition("=")
+            if name.strip() == node and mac.strip():
+                return mac.strip()
+        return None
 
     def node_watts(self, node: str) -> tuple[float, float]:
         """Idle and full-load power of a laptop, in W."""

@@ -140,3 +140,13 @@ def test_a_network_policy_error_does_not_stop_the_create(signup, run_worker, dri
     inst_id = tenant.create_instance().json()["instance"]["id"]
     run_worker()
     assert tenant.get(f"/v1/instances/{inst_id}").json()["status"] == "running"
+
+
+def test_a_cluster_without_kvm_refuses_virtual_machines_up_front(app, signup):
+    app.state.settings.allow_vms = False
+    tenant = signup()
+    response = tenant.create_instance(type="virtual-machine")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "unavailable"
+    assert tenant.create_instance("web-2").status_code == 202  # containers still work
+    assert tenant.client.get("/v1/catalog/pricing").json()["vms_available"] is False

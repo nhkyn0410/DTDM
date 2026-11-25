@@ -67,6 +67,7 @@ class IncusDriver:
         storage_pool: str = "local",
         network: str = "incusbr0",
         nic_limit: str = "",
+        port_isolation: bool = True,
         timeout: float = 30.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
@@ -74,6 +75,8 @@ class IncusDriver:
         self.storage_pool = storage_pool
         self.network = network
         self.nic_limit = nic_limit  # e.g. "20Mbit" each way per instance; "" for no limit
+        # Instances on the shared bridge cannot reach one another, only the gateway and beyond.
+        self.port_isolation = port_isolation
         self._network_policy_ok = False
         self._clustered: bool | None = None  # learned from /1.0/cluster on first use
         self._server_name: str | None = None  # learned from /1.0 on first use
@@ -285,6 +288,8 @@ class IncusDriver:
         if self.nic_limit:  # bandwidth cap each way (threat model #10); applies live
             nic["limits.ingress"] = self.nic_limit
             nic["limits.egress"] = self.nic_limit
+        if self.port_isolation:  # no tenant can scan another's instances (demo scene 3)
+            nic["security.port_isolation"] = "true"
         self._call(
             "PUT",
             "/1.0/profiles/default",
@@ -443,6 +448,21 @@ class IncusDriver:
         if moved is None:
             raise DriverError(f"instance {name} not found after the move")
         return moved
+
+    # -- cluster members (Green cloud) -------------------------------------------------------
+
+    def _member_state(self, name: str, action: str) -> None:
+        if not self._is_clustered():
+            raise DriverError(f"{action} needs a cluster")
+        response = self._call("POST", f"/1.0/cluster/members/{name}/state", json={"action": action})
+        self._wait(response, None, timeout=1800)
+
+    def evacuate_node(self, name: str) -> None:
+        # Instances carry cluster.evacuate=migrate (create_instance), so they move, not stop.
+        self._member_state(name, "evacuate")
+
+    def restore_node(self, name: str) -> None:
+        self._member_state(name, "restore")
 
     # -- commands inside an instance ---------------------------------------------------------
 

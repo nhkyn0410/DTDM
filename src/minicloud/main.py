@@ -61,6 +61,7 @@ def build_driver(settings: Settings) -> ComputeDriver:
             storage_pool=settings.incus_storage_pool,
             network=settings.incus_network,
             nic_limit=settings.incus_nic_limit,
+            port_isolation=settings.incus_port_isolation,
         )
     raise ValueError(f"unknown driver {settings.driver!r}; use 'fake' or 'incus'")
 

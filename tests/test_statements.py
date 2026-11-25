@@ -208,6 +208,7 @@ def test_the_public_pricing_rules(client):
         "storage_credits_per_gib_hour": 0.1,
         "hours_per_month": 730,
         "billing_timezone": "+07:00",
+        "vms_available": True,
     }
 
 

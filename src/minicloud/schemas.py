@@ -126,7 +126,55 @@ class InstanceOut(BaseModel):
     public_url: str | None = Field(
         default=None, description="URL công khai tới cổng 80 của container (nếu đã bật)"
     )
+    cpu_util: float | None = Field(
+        default=None, description="Phần vCPU máy dùng trong phút vừa qua (0..1)"
+    )
+    group_id: str | None = None
     created_at: datetime
+
+
+class GroupIn(BaseModel):
+    # Members are named <group>-<n>, so the group name leaves room for the number.
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,26}[a-z0-9]$", examples=["web"])
+    flavor: str = "s1.small"
+    image: str = "ubuntu-24.04"
+    min_size: int = Field(default=1, ge=1, le=10)
+    max_size: int = Field(default=3, ge=1, le=10)
+    script: str = Field(
+        default="",
+        max_length=16000,
+        description="Script bash, chạy một lần bằng quyền root khi mỗi máy mới của nhóm khởi động",
+    )
+
+
+class GroupResize(BaseModel):
+    min_size: int = Field(ge=1, le=10)
+    max_size: int = Field(ge=1, le=10)
+
+
+class GroupMemberOut(BaseModel):
+    id: str
+    name: str
+    status: InstanceStatus
+    node: str | None
+    cpu_percent: float | None
+    public_url: str | None
+
+
+class GroupOut(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    flavor: str
+    image: str
+    min_size: int
+    max_size: int
+    size: int = Field(description="Số máy đang chạy hoặc đang được tạo")
+    cpu_percent: float | None = Field(description="CPU trung bình của các máy đang chạy (%)")
+    public_url: str | None = Field(description="Một địa chỉ chung, chia tải cho mọi máy")
+    last_scaled_at: datetime | None
+    created_at: datetime
+    members: list[GroupMemberOut]
 
 
 class OperationOut(BaseModel):
@@ -189,6 +237,7 @@ class PricingOut(BaseModel):
     storage_credits_per_gib_hour: float
     hours_per_month: int = 730
     billing_timezone: str = "+07:00"
+    vms_available: bool = True
 
 
 class BillingOut(BaseModel):
@@ -296,6 +345,32 @@ class NodeOut(BaseModel):
     allocated_vcpus: int
     allocated_memory_mib: int
     instances: int
+
+
+class OverviewOut(BaseModel):
+    """What the provider watches: capacity given out, power, money and customers."""
+
+    as_of: datetime
+    month: str
+    nodes: list[NodeOut]
+    vcpu_overcommit: float | None = Field(
+        description="vCPU đã cấp ÷ luồng CPU của laptop đang thức"
+    )
+    memory_allocated_percent: float | None
+    cluster_watts: float
+    revenue_credits_month: float = Field(description="Credit đã trừ của mọi tổ chức trong tháng")
+    revenue_vnd_month: float = Field(description="Quy đổi tham khảo, không phải tiền thật")
+    energy_wh_month: float
+    organizations: int
+    organizations_running: int
+    instances_running: int
+    groups: int
+
+
+class NodeActionOut(BaseModel):
+    node: str
+    action: str
+    detail: str
 
 
 class MigrationOut(BaseModel):

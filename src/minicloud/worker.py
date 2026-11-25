@@ -3,7 +3,9 @@
 import logging
 import threading
 import time
-from datetime import datetime
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,6 +17,7 @@ from .drivers.base import ComputeDriver, DriverError, InstanceSpec, ProjectLimit
 from .green.energy import EnergyMeter
 from .models import (
     Instance,
+    InstanceGroup,
     InstanceStatus,
     Operation,
     OperationAction,
@@ -23,7 +26,7 @@ from .models import (
     utcnow,
 )
 from .scheduler import NoCapacityError, NodeCapacity, PlacementPolicy, choose_node
-from .services import green, metering
+from .services import green, groups, metering
 from .services.instances import build_user_data, current_allocations
 
 log = logging.getLogger("minicloud.worker")
@@ -66,6 +69,7 @@ def _run(
     if op.action == OperationAction.create:
         inst.status = InstanceStatus.provisioning
     db.commit()
+    began = time.monotonic()  # `now` is the billing clock (tests move it); this times the work
     try:
         if op.action == OperationAction.create:
             _create(db, driver, settings, inst, project, now)
@@ -91,7 +95,8 @@ def _run(
         op.status = OperationStatus.failed
         op.error = str(exc)
         inst.status = InstanceStatus.error
-    op.finished_at = now
+    # How long Incus took, so `minicloud stats` reports real provisioning times.
+    op.finished_at = now + timedelta(seconds=time.monotonic() - began)
     if op.status == OperationStatus.succeeded:
         # Before the commit, so a client that reads "succeeded" also finds the URL in step.
         # On a real cluster this asks Incus for its members, which takes a moment.
@@ -144,7 +149,7 @@ def _create(
             memory_mib=flavor.memory_mib,
             disk_gib=flavor.disk_gib,
             node=node,
-            user_data=build_user_data(inst.ssh_keys),
+            user_data=build_user_data(inst.ssh_keys, _group_script(db, inst)),
             public_port=inst.public_port,
         )
     )
@@ -153,6 +158,37 @@ def _create(
     inst.status = InstanceStatus.running
     inst.metered_until = now  # billing starts once the instance really runs
     ingress.assign_hostname(inst, settings)
+    if inst.group_id and inst.public_port is not None:
+        # A group member joins the shared URL only once its app answers; before that Traefik
+        # would send it requests that fail (seen on staging: 26 errors in 20 s while scaling).
+        wait_for_app(driver, inst, settings.group_ready_timeout_seconds)
+
+
+def wait_for_app(driver: ComputeDriver, inst: Instance, timeout: float) -> bool:
+    """Poll the member's public port until any HTTP answer comes back, for up to `timeout`."""
+    if timeout <= 0:
+        return False
+    address = ingress.node_addresses(driver).get(inst.node or "")
+    if not address:
+        return False
+    url = ingress.server_url(address, inst.public_port)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=2):  # noqa: S310 (our own node, http)
+                return True
+        except urllib.error.HTTPError:
+            return True  # the app answered, even if with an error status
+        except OSError:
+            time.sleep(1)
+    log.warning("app of %s did not answer within %.0f s; routing it anyway", inst.name, timeout)
+    return False
+
+
+def _group_script(db: Session, inst: Instance) -> str:
+    """The startup script of the autoscaling group the instance belongs to, if any."""
+    group = db.get(InstanceGroup, inst.group_id) if inst.group_id else None
+    return group.script if group else ""
 
 
 def sync_ingress(db: Session, driver: ComputeDriver, settings: Settings) -> None:
@@ -197,12 +233,15 @@ class BackgroundWorker:
                     process_pending_operations(db, self._driver, self._settings)
                     if time.monotonic() >= next_tick:
                         report = self._reconcile(db)
-                        power = None  # Incus did not answer: keep the last estimates
+                        power = util = None  # Incus did not answer: keep the last figures
                         if report.skipped is None:
                             power = green.estimate_power(
                                 db, self._driver, self._settings, report.observed, self._energy
                             )
-                        metering.run_metering_tick(db, utcnow(), power=power)
+                            util = dict(self._energy.util) if power is not None else None
+                        metering.run_metering_tick(db, utcnow(), power=power, util=util)
+                        for change in groups.autoscale(db, utcnow()):
+                            log.info("autoscale: %s", change)
                         # Also refresh routes: a laptop may have slept or changed address.
                         sync_ingress(db, self._driver, self._settings)
                         next_tick = time.monotonic() + self._settings.metering_interval_seconds

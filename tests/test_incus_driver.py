@@ -312,7 +312,12 @@ def test_ensure_project_creates_a_restricted_project_with_its_own_profile():
     assert profile.url.params["project"] == "mc-1"
     devices = json.loads(profile.content)["devices"]
     assert devices["root"] == {"type": "disk", "path": "/", "pool": "local"}
-    assert devices["eth0"] == {"type": "nic", "name": "eth0", "network": "incusbr0"}
+    assert devices["eth0"] == {
+        "type": "nic",
+        "name": "eth0",
+        "network": "incusbr0",
+        "security.port_isolation": "true",
+    }
 
 
 def test_ensure_project_on_an_existing_project_keeps_its_features():
@@ -416,6 +421,24 @@ def test_tenant_profiles_carry_the_bandwidth_cap():
     assert eth0["limits.ingress"] == "20Mbit" and eth0["limits.egress"] == "20Mbit"
 
 
+def test_tenant_instances_cannot_reach_each_other():
+    # Every tenant shares one bridge; port isolation stops instance-to-instance traffic on it
+    # while the gateway, DNS and the Internet stay reachable (tried on staging, Incus 6.0).
+    routes = {
+        ("GET", "/1.0/projects/mc-1"): not_found(),
+        ("POST", "/1.0/projects"): ok({}),
+        ("PUT", "/1.0/profiles/default"): ok({}),
+    }
+    limits = ProjectLimits(instances=5, vcpus=8, memory_mib=8192, disk_gib=100)
+    driver, calls = driver_with(routes)
+    driver.ensure_project("mc-1", limits)
+    assert json.loads(calls[-1].content)["devices"]["eth0"]["security.port_isolation"] == "true"
+
+    open_driver, calls = driver_with(routes, port_isolation=False)
+    open_driver.ensure_project("mc-1", limits)
+    assert "security.port_isolation" not in json.loads(calls[-1].content)["devices"]["eth0"]
+
+
 def test_a_command_starts_without_stdin_and_records_its_output():
     driver, calls = driver_with({("POST", "/1.0/instances/web-abc/exec"): accepted("ex1")})
     exec_id = driver.start_exec("mc-1", "web-abc", ["bash", "-c", "uptime"], {"HOME": "/root"})
@@ -475,3 +498,29 @@ def test_long_output_is_cut_and_a_forgotten_operation_still_has_its_logs():
     result = driver.wait_exec("mc-1", "web-abc", "ex1", 20)
     assert result.exit_code is None
     assert len(result.stdout) == 64 * 1024 and result.truncated is True
+
+
+def test_evacuating_a_member_asks_incus_and_waits():
+    calls_body = []
+
+    def state(request):
+        calls_body.append(json.loads(request.content))
+        return accepted("ev1")
+
+    driver, calls = driver_with(
+        {
+            ("GET", "/1.0/cluster"): ok({"enabled": True}),
+            ("POST", "/1.0/cluster/members/laptop-3/state"): state,
+            ("GET", "/1.0/operations/ev1/wait"): ok({"status": "Success"}),
+        }
+    )
+    driver.evacuate_node("laptop-3")
+    driver.restore_node("laptop-3")
+    assert calls_body == [{"action": "evacuate"}, {"action": "restore"}]
+    assert sum(1 for c in calls if c.url.path.endswith("/wait")) == 2
+
+
+def test_a_single_server_cannot_be_evacuated():
+    driver, _ = driver_with({("GET", "/1.0/cluster"): ok({"enabled": False})})
+    with pytest.raises(DriverError, match="needs a cluster"):
+        driver.evacuate_node("MSI")

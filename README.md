@@ -15,6 +15,11 @@ Nền tảng điện toán đám mây đa người thuê chạy trên cụm Incu
 | Metering theo giây, credit, tự khoá khi hết credit | Chạy được, có test |
 | Sao kê tháng (CSV, in PDF), đồng hồ chi phí, ngân sách có cảnh báo, bảng giá công khai, giá vốn so với thị trường ([docs/bang-gia.md](docs/bang-gia.md)) | Chạy được, có test |
 | Chạy lệnh trong máy từ console (`POST /v1/instances/{id}/exec`), vì SSH từ Internet không tới được máy của khách | Chạy được, có test; cách gọi exec của Incus 6.0 đã thử trên staging |
+| Nhóm máy tự co giãn: thêm hoặc bớt máy theo CPU, Traefik chia tải qua một địa chỉ chung (`/v1/projects/{id}/groups`) | Chạy được, có test. Thử trên staging: 1 → 3 máy trong 149 giây khi bắn tải, tự về 1 máy khi hết tải |
+| Green cloud: API admin dọn laptop (evacuate), đánh thức bằng Wake-on-LAN, nhận lại (restore), có rào chống mất quorum | Chạy được, có test; chưa thử trên cụm thật |
+| Giám sát hai phía: khách thấy CPU từng máy, W và Wh; admin thấy doanh thu mô phỏng, công suất cụm, mức cấp phát từng laptop (`/v1/admin/overview`, mục Nhà cung cấp trên console) | Chạy được, có test |
+| Cách ly mạng: máy của khách không gửi gói tin thẳng cho nhau (`security.port_isolation`) | Chạy được, có test, đã thử trên staging |
+| Script thí nghiệm trong `infra/bench`: thời gian cấp phát, hàng xóm ồn ào, overcommit, bắn tải | Đã đo trên staging: container p50 6,7 giây, p95 7,4 giây; giới hạn CPU giữ tenant B không chậm đi (bỏ giới hạn thì chậm 23%); overcommit 4:1 còn một phần tư CPU mỗi khách. Xem [infra/bench/README.md](infra/bench/README.md) |
 | Chặn truy cập chéo tenant (trả 404, ghi audit) | Chạy được, có test |
 | Driver Incus (REST API qua TLS client cert) | Đã chạy trên Incus 6.0 một node trong WSL2, và trên cụm ảo 3 VM với Incus 7.6 (dàn 3 node, evacuate, restore, chuyển instance); **chưa thử trên laptop thật** |
 | URL công khai cho container: `https://<tên>-<6 ký tự>.vexenhanh.id.vn` (proxy device + Traefik) | Chạy được trên staging qua Cloudflare → Traefik → proxy device → container |
@@ -94,6 +99,8 @@ Xem [docs/dev-incus-wsl.md](docs/dev-incus-wsl.md): dựng Incus một node tron
 - [Threat model](docs/threat-model.md): các mối đe doạ của môi trường đa người thuê.
 - [Bảng giá và giá vốn](docs/bang-gia.md): giá cho khách, giá vốn mỗi vCPU-giờ, so với DigitalOcean, AWS và nhà cung cấp trong nước.
 - [Chạy thử với người dùng thật](docs/chay-thu.md): tin mời mẫu, việc của người trực, nhật ký sự cố, số liệu cho báo cáo, khảo sát.
+- [Kịch bản demo](docs/kich-ban-demo.md): việc chuẩn bị và từng bước của 7 màn demo.
+- Thí nghiệm: `infra/bench/provision.py` (thời gian cấp phát), `noisy-neighbor.sh`, `overcommit.sh`, `load.py` (bắn tải cho autoscaling).
 - Cho người dùng: [hướng dẫn](src/minicloud/console/huong-dan.html) và [điều khoản sử dụng](src/minicloud/console/dieu-khoan.html), phục vụ ở `/console/`.
 - [Kế hoạch tuần 1–2](docs/plan/tuan-1-2.md): việc của từng vai trò để qua mốc 1.
 - [Cách đóng góp](CONTRIBUTING.md): nhánh, review, quy ước commit.

@@ -209,14 +209,28 @@ def current_allocations(db: Session) -> dict[str, Allocation]:
     return allocations
 
 
-def build_user_data(ssh_keys: str) -> str | None:
-    """cloud-init config that installs the customer's SSH keys.
+STARTUP_SCRIPT = "/var/lib/minicloud/startup.sh"
 
-    Each key is written as a JSON string, which is valid YAML, so a crafted key comment
-    cannot inject extra cloud-init directives (keys are also validated in the API schema).
+
+def build_user_data(ssh_keys: str, script: str = "") -> str | None:
+    """cloud-init config that installs the customer's SSH keys and runs a startup script once.
+
+    Each key and the script are written as JSON strings, which are valid YAML, so a crafted key
+    comment or script cannot inject extra cloud-init directives (keys are also validated in the
+    API schema). The script runs as root inside the customer's own container.
     """
     keys = [k.strip() for k in ssh_keys.splitlines() if k.strip()]
-    if not keys:
+    parts = []
+    if keys:
+        parts.append("ssh_authorized_keys:\n" + "".join(f"  - {json.dumps(k)}\n" for k in keys))
+    if script.strip():
+        parts.append(
+            "write_files:\n"
+            f"  - path: {STARTUP_SCRIPT}\n"
+            "    permissions: '0755'\n"
+            f"    content: {json.dumps(script)}\n"
+            f"runcmd:\n  - [bash, {STARTUP_SCRIPT}]\n"
+        )
+    if not parts:
         return None
-    lines = "".join(f"  - {json.dumps(k)}\n" for k in keys)
-    return f"#cloud-config\nssh_authorized_keys:\n{lines}"
+    return "#cloud-config\n" + "".join(parts)

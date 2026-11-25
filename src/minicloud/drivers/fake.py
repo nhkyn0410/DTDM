@@ -123,6 +123,20 @@ class FakeDriver:
         del self.execs[exec_id]
         return ExecResult(0, f"(fake) {command[-1]}\n", "")
 
+    def evacuate_node(self, name: str) -> None:
+        self._maybe_fail()
+        targets = [n for n in self.nodes.values() if n.name != name and n.online and not n.asleep]
+        if not targets:
+            raise DriverError("no other member to move instances to")
+        for key, runtime in list(self.instances.items()):
+            if runtime.node == name:
+                self.instances[key] = replace(runtime, node=targets[0].name)
+        self.set_asleep(name, True)
+
+    def restore_node(self, name: str) -> None:
+        self._maybe_fail()
+        self.set_asleep(name, False)
+
     def set_asleep(self, node: str, asleep: bool) -> None:
         """Pretend the Green planner put a laptop to sleep (or woke it up)."""
         self.nodes[node] = replace(self.nodes[node], asleep=asleep)

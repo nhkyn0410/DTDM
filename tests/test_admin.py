@@ -72,3 +72,30 @@ def test_a_top_up_lifts_the_suspension(signup, run_worker, session):
     assert granted.status_code == 200
     assert granted.json()["suspended"] is False
     assert granted.json()["credits"] == 480
+
+
+def test_the_provider_overview_adds_up(signup, run_worker, session):
+    tenant = signup()
+    make_admin(session, "an@example.com")
+    tenant.create_instance("web-1")
+    tenant.create_instance("web-2")
+    t0 = utcnow() - timedelta(hours=1)
+    run_worker(now=t0)
+    with session() as db:
+        run_metering_tick(db, t0 + timedelta(minutes=30))
+
+    view = tenant.get("/v1/admin/overview").json()
+    assert (view["organizations"], view["organizations_running"], view["instances_running"]) == (
+        1,
+        1,
+        2,
+    )
+    assert view["revenue_credits_month"] >= 19  # 2 containers x 30 min x 20 credits/h
+    assert view["revenue_vnd_month"] == round(view["revenue_credits_month"] * 10)
+    assert view["vcpu_overcommit"] == round(2 / 24, 2)  # 2 vCPUs on 3 x 8 threads
+    assert view["cluster_watts"] == 24  # three idle laptops at the default 8 W
+    assert len(view["nodes"]) == 3
+
+
+def test_the_overview_is_for_admins_only(signup):
+    assert signup().get("/v1/admin/overview").status_code == 403

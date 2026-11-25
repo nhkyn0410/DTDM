@@ -66,6 +66,18 @@
       <p id="suspended" class="banner error" hidden>Tổ chức đã hết credit nên các máy bị dừng. Nhờ nhóm vận hành nạp thêm.</p>
       <p id="budget-warning" class="banner warn" hidden></p>
 
+      <section id="provider" class="card provider" hidden>
+        <h2>Nhà cung cấp</h2>
+        <div id="provider-stats" class="stats"></div>
+        <div class="table-wrap">
+          <table class="usage prices">
+            <thead><tr><th>Laptop</th><th>Trạng thái</th><th>vCPU đã cấp</th><th>RAM đã cấp</th><th>Máy</th></tr></thead>
+            <tbody id="provider-nodes"></tbody>
+          </table>
+        </div>
+        <p id="provider-note" class="muted small"></p>
+      </section>
+
       <section id="green" class="card green">
         <h2>Điện năng (Green cloud)</h2>
         <p id="green-mine"></p>
@@ -90,6 +102,31 @@
         <div id="term-examples" class="row"></div>
         <p class="muted small">Lệnh chạy bằng bash với quyền root và không có bàn phím: lệnh nào cần hỏi có/không thì thêm <code>-y</code>. Mỗi lệnh chạy tối đa 10 phút; đầu ra giữ tối đa 64 KB.</p>
       </section>
+
+      <h2>Nhóm máy tự co giãn</h2>
+      <p class="muted small">Các container giống nhau sau một địa chỉ HTTPS chung. Mỗi phút, CPU trung bình trên 70% thì thêm một máy; dưới 20% liên tục 3 phút thì bớt một máy.</p>
+      <ul id="groups" class="instances"></ul>
+      <details id="group-create" class="history">
+        <summary>Tạo nhóm máy</summary>
+        <form id="group-form" class="card">
+          <label>Tên nhóm
+            <input name="name" required pattern="[a-z][a-z0-9\-]{0,26}[a-z0-9]" placeholder="web"
+                   title="Chữ thường, số và dấu gạch ngang, 2–28 ký tự">
+          </label>
+          <div class="row">
+            <label class="grow">Ít nhất <input name="min_size" type="number" min="1" max="10" value="1" required></label>
+            <label class="grow">Nhiều nhất <input name="max_size" type="number" min="1" max="10" value="3" required></label>
+          </div>
+          <label>Cấu hình <select name="flavor" id="group-flavor"></select></label>
+          <label>Script khởi động (chạy một lần bằng quyền root trong mỗi máy mới)
+            <textarea name="script" rows="6" spellcheck="false" placeholder="apt-get install -y nginx"></textarea>
+          </label>
+          <div class="row">
+            <button id="group-template" type="button">Dùng app mẫu tốn CPU</button>
+            <button type="submit" class="primary">Tạo nhóm</button>
+          </div>
+        </form>
+      </details>
 
       <h2>Tạo máy mới</h2>
       <form id="create-form" class="card">

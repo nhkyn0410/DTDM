@@ -46,6 +46,7 @@ def pricing(settings: AppSettings) -> PricingOut:
         trial_credits=settings.trial_credits,
         vm_price_percent=VM_PRICE_PERCENT,
         storage_credits_per_gib_hour=STORAGE_MILLICREDITS_PER_GIB_HOUR / 1000,
+        vms_available=settings.allow_vms,
     )
 
 
