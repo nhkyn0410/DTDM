@@ -1,4 +1,4 @@
-"""Carries out pending operations against the data plane and runs the metering tick."""
+"""Carries out pending operations, then once a minute: reconcile, metering, routes."""
 
 import logging
 import threading
@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from . import ingress, reconciler
 from .catalog import FLAVORS, IMAGES
 from .config import Settings
 from .drivers.base import ComputeDriver, DriverError, InstanceSpec, ProjectLimits
@@ -91,6 +92,8 @@ def _run(
         inst.status = InstanceStatus.error
     op.finished_at = now
     db.commit()
+    if op.status == OperationStatus.succeeded:
+        sync_ingress(db, driver, settings)
 
 
 def _create(
@@ -119,6 +122,11 @@ def _create(
     node = choose_node(
         nodes, current_allocations(db), flavor.vcpus, flavor.memory_mib, placement_policy(settings)
     )
+    if ingress.wants_public_url(settings, inst.type) and inst.public_port is None:
+        # Reserve the port before Incus listens on it: if this create is cut off half-way, the
+        # instance keeps its port and no other instance can be given the same one.
+        inst.public_port = ingress.allocate_public_port(db, settings)
+        db.commit()
     runtime = driver.create_instance(
         InstanceSpec(
             project=project.incus_project,
@@ -130,12 +138,22 @@ def _create(
             disk_gib=flavor.disk_gib,
             node=node,
             user_data=build_user_data(inst.ssh_keys),
+            public_port=inst.public_port,
         )
     )
     inst.node = runtime.node or node
     inst.ip = runtime.ip
     inst.status = InstanceStatus.running
     inst.metered_until = now  # billing starts once the instance really runs
+    ingress.assign_hostname(inst, settings)
+
+
+def sync_ingress(db: Session, driver: ComputeDriver, settings: Settings) -> None:
+    """Keep Traefik's routes in step with the database; never fail an operation over it."""
+    try:
+        ingress.sync(db, driver, settings)
+    except Exception:
+        log.exception("could not rewrite the ingress routes file")
 
 
 class BackgroundWorker:
@@ -148,6 +166,7 @@ class BackgroundWorker:
         self._driver = driver
         self._settings = settings
         self._stop = threading.Event()
+        self._orphans: list[str] = []
         self._thread = threading.Thread(target=self._loop, name="minicloud-worker", daemon=True)
 
     def start(self) -> None:
@@ -158,14 +177,29 @@ class BackgroundWorker:
         self._thread.join(timeout)
 
     def _loop(self) -> None:
-        next_metering = 0.0
+        try:
+            with self._session_factory() as db:
+                reconciler.recover_interrupted_operations(db)
+        except Exception:
+            log.exception("could not recover interrupted operations")
+        next_tick = 0.0
         while not self._stop.is_set():
             try:
                 with self._session_factory() as db:
                     process_pending_operations(db, self._driver, self._settings)
-                    if time.monotonic() >= next_metering:
+                    if time.monotonic() >= next_tick:
+                        self._reconcile(db)
                         metering.run_metering_tick(db, utcnow())
-                        next_metering = time.monotonic() + self._settings.metering_interval_seconds
+                        # Also refresh routes: a laptop may have slept or changed address.
+                        sync_ingress(db, self._driver, self._settings)
+                        next_tick = time.monotonic() + self._settings.metering_interval_seconds
             except Exception:  # keep the loop alive; the next iteration retries
                 log.exception("worker iteration failed")
             self._stop.wait(self._settings.worker_interval_seconds)
+
+    def _reconcile(self, db: Session) -> None:
+        report = reconciler.reconcile(db, self._driver, self._settings)
+        if report.orphans != self._orphans:  # say it once, not every minute
+            self._orphans = report.orphans
+            if report.orphans:
+                log.warning("in Incus but unknown to minicloud: %s", ", ".join(report.orphans))

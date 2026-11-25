@@ -1,17 +1,23 @@
 # Portal (web console)
 
-Vai trò 5 phụ trách; thư mục này chưa có code.
+Một console tối thiểu đã chạy, do chính control plane phục vụ ở `/console`; trên staging nó nằm ở https://cloud.vexenhanh.id.vn. Mã nguồn ở [src/minicloud/console](../src/minicloud/console): ba file HTML, JS, CSS, không dùng framework và không cần bước build.
 
-Gợi ý để bắt đầu:
+Console hiện làm được:
 
-- **Stack:** Next.js và TypeScript. Sinh client từ `http://127.0.0.1:8000/openapi.json`, ví dụ bằng `openapi-typescript`.
-- **CORS:** API đã cho phép `http://localhost:3000`. Đổi bằng `MINICLOUD_CORS_ORIGINS` nếu portal chạy ở địa chỉ khác.
-- **Thứ tự các màn hình:**
-  1. Đăng ký
-  2. Danh sách instance
-  3. Tạo instance
-  4. Chi tiết instance: trạng thái, IP, nút dừng và xoá
-  5. Credit và lịch sử sử dụng
-  6. Audit log
-- **Đăng nhập:** giai đoạn đầu dùng API key nhận lúc đăng ký và chỉ giữ trong phiên trình duyệt; chuyển sang Keycloak khi vai trò 4 xong.
-- **Sau tuần 6:** terminal trên web bằng xterm.js, nối qua control plane tới `exec` của Incus.
+- đăng ký (có mã mời) và đăng nhập bằng API key;
+- xem danh sách máy, tạo máy (container hoặc VM, chọn cấu hình và hệ điều hành, thêm SSH key);
+- dừng, bật và xoá máy; mở URL công khai của container;
+- xem số dư, số credit đã dùng trong 24 giờ và lịch sử tính tiền.
+
+Vai trò 5 làm tiếp trên nền này, hoặc làm lại bằng Next.js trong thư mục `portal/`. Dù chọn cách nào cũng phải giữ ba quy tắc, vì app của khách nằm chung tên miền:
+
+1. Không đưa dữ liệu từ API vào trang dưới dạng HTML (`innerHTML`, `insertAdjacentHTML`); chỉ dùng `textContent`. Test `tests/test_console.py` sẽ báo lỗi nếu vi phạm.
+2. Không có script inline: header CSP chỉ cho chạy file script của chính console.
+3. Không cất API key trong cookie. App của khách cùng site có thể đọc cookie đặt cho cả tên miền; `localStorage` thì chỉ trang console đọc được.
+
+Việc tiếp theo nên làm:
+
+- đăng nhập bằng Keycloak khi vai trò 4 xong;
+- chọn giữa nhiều project;
+- terminal trên web (xterm.js nối tới `exec` của Incus qua control plane);
+- trang trạng thái của cụm và bảng giá.

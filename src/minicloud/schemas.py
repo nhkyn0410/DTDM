@@ -17,6 +17,9 @@ class SignupIn(BaseModel):
     email: EmailStr
     name: str = Field(min_length=1, max_length=120)
     org_name: str = Field(min_length=2, max_length=120)
+    invite_code: str | None = Field(
+        default=None, max_length=64, description="Mã mời do nhóm vận hành cấp (nếu đang bật)"
+    )
 
 
 class SignupOut(BaseModel):
@@ -99,6 +102,9 @@ class InstanceOut(BaseModel):
     status: InstanceStatus
     node: str | None
     ip: str | None
+    public_url: str | None = Field(
+        default=None, description="URL công khai tới cổng 80 của container (nếu đã bật)"
+    )
     created_at: datetime
 
 
@@ -192,3 +198,20 @@ class GreenPlanOut(BaseModel):
     watts_before: float
     watts_after: float
     watts_saved: float
+
+
+class ReconcileChangeOut(BaseModel):
+    instance_id: str
+    incus_name: str
+    field: str
+    before: str | None
+    after: str | None
+    reason: str
+
+
+class ReconcileOut(BaseModel):
+    checked: int
+    changes: list[ReconcileChangeOut]
+    held_back: list[str]
+    orphans: list[str]
+    skipped: str | None

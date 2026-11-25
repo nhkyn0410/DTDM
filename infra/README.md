@@ -46,6 +46,36 @@ Trên cả 3 laptop, cài exporter đo điện:
 sudo ./infra/node/40-install-exporter.sh
 ```
 
+Trên laptop-1, cài control plane, Traefik và Cloudflare Tunnel thành dịch vụ chạy nền. Các script này đã chạy thật trên WSL (laptop-1 tạm, xem [docs/dev-incus-wsl.md](../docs/dev-incus-wsl.md)). Lệnh 61 in ra một link để đăng nhập Cloudflare.
+
+```bash
+sudo ./infra/node/50-install-control-plane.sh vexenhanh.id.vn   # in ra mã mời đăng ký
+sudo ./infra/node/60-install-ingress.sh
+sudo ./infra/node/61-setup-tunnel.sh minicloud vexenhanh.id.vn
+sudo minicloud-admin make-admin <email-của-bạn>                  # sau khi đăng ký
+```
+
+Muốn cập nhật code, `git pull` rồi chạy lại script 50; dữ liệu và cấu hình được giữ nguyên. Mỗi lần chạy, script dừng API, sao lưu database, nâng schema (Alembic), rồi bật lại API. Nó cũng cài timer sao lưu hằng ngày lúc 03:00 giờ Việt Nam.
+
+## Sao lưu và khôi phục database
+
+```bash
+sudo ls -l /var/lib/minicloud/backups                          # 14 bản mới nhất
+systemctl list-timers minicloud-backup.timer                   # lần sao lưu tới
+sudo minicloud-admin backup --dir /var/lib/minicloud/backups   # sao lưu ngay
+```
+
+Khôi phục một bản:
+
+```bash
+sudo systemctl stop minicloud-api
+sudo install -o minicloud -g minicloud -m 600 \
+  /var/lib/minicloud/backups/minicloud-<thời-điểm>.db /var/lib/minicloud/minicloud.db
+sudo systemctl start minicloud-api
+```
+
+Trong vòng một phút sau khi API chạy lại, reconciler đối chiếu với Incus. Instance bị xoá sau thời điểm sao lưu chuyển sang `error`. Instance tạo sau thời điểm đó hiện trong mục `orphans` của `POST /v1/admin/reconcile`, chờ admin xử lý. Các bản sao lưu nằm trên chính laptop-1: hãy chép định kỳ sang máy khác.
+
 ## Kiểm tra
 
 ```bash

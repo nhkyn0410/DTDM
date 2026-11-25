@@ -1,0 +1,18 @@
+# /etc/cloudflared/config.yml trên laptop-1 (xem infra/edge/README.md).
+# Điền UUID của tunnel: cloudflared tunnel list
+tunnel: <TUNNEL-UUID>
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: cloud-api.vexenhanh.id.vn
+    service: http://localhost:8000
+  # Web console: control plane tự phục vụ ở /console (src/minicloud/console).
+  - hostname: cloud.vexenhanh.id.vn
+    service: http://localhost:8000
+  - hostname: cloud-status.vexenhanh.id.vn
+    service: http://localhost:3001
+  # App của khách: Traefik trên laptop-1 định tuyến theo tên máy tới laptop và cổng của instance.
+  # @ và www không bao giờ tới đây vì DNS của chúng trỏ thẳng về Vercel.
+  - hostname: "*.vexenhanh.id.vn"
+    service: http://localhost:8080
+  - service: http_status:404

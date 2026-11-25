@@ -22,9 +22,27 @@ Theo [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix
 - Logic nghiệp vụ nằm trong `services/`; route trong `api/` chỉ đọc request rồi gọi service.
 - Mọi thay đổi trạng thái instance phải đi qua `Operation`, worker mới gọi data plane.
 - Gọi `metering.settle_instance` trước khi đổi trạng thái instance, để khoảng thời gian trước đó được tính đúng giá.
+- Đừng giả định database luôn khớp với Incus: reconciler (`reconciler.py`) sửa chỗ lệch mỗi phút và có thể chạy lại thao tác bị ngắt, như lệnh xoá. Vì vậy mỗi thao tác mới với Incus phải chạy lại được nhiều lần mà không hỏng.
 - Truy cập tài nguyên của tenant phải qua `tenancy.check_access`. Mỗi endpoint mới cần một test chứng minh tenant khác nhận 404.
 - Không commit bí mật: chứng chỉ và khoá để trong `secrets/` (đã có trong `.gitignore`), cấu hình để trong `.env`.
 - Script shell giữ xuống dòng kiểu LF (`.gitattributes` đã ép); trên Windows đừng mở và lưu lại bằng trình soạn thảo đổi sang CRLF.
+
+## Đổi schema database
+
+Schema do Alembic quản lý. App tự chạy migration khi khởi động; trên laptop-1, script 50 sao lưu database rồi mới migrate.
+
+1. Sửa model trong `src/minicloud/models.py`.
+2. Sinh migration, lấy số kế tiếp làm mã (`0002`, `0003`, …). Lệnh đầu đưa `minicloud.db` của bạn lên bản mới nhất, vì Alembic chỉ so sánh với một database đã ở bản mới nhất:
+
+   ```powershell
+   uv run minicloud migrate
+   uv run alembic revision --autogenerate -m "them cot x" --rev-id 0002
+   ```
+
+3. Đọc file vừa sinh trong `src/minicloud/migrations/versions/` và sửa nếu cần (ruff đã tự định dạng nó). Autogenerate hiểu đổi tên cột thành xoá rồi thêm, làm mất dữ liệu. Cột `NOT NULL` mới cần `server_default` để các dòng đã có không lỗi.
+4. Chạy `uv run pytest`. `tests/test_migrations.py` báo đỏ nếu model và migration lệch nhau, và thử hạ cấp rồi nâng lại.
+
+Không sửa migration đã vào `main`, vì database của staging đã chạy nó; cần đổi gì thì thêm migration mới.
 
 ## Quyết định lớn
 

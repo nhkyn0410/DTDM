@@ -109,6 +109,14 @@ def test_a_full_cluster_reports_no_capacity(signup, run_worker, driver):
     assert "no laptop can fit" in op["error"]
 
 
+def test_without_a_public_domain_nothing_is_published(signup, run_worker, driver):
+    tenant = signup()
+    inst_id = tenant.create_instance().json()["instance"]["id"]
+    run_worker()
+    assert tenant.get(f"/v1/instances/{inst_id}").json()["public_url"] is None
+    assert driver.public_ports == {}
+
+
 def test_a_running_instance_cannot_be_started_again(signup, run_worker):
     tenant = signup()
     inst_id = tenant.create_instance().json()["instance"]["id"]

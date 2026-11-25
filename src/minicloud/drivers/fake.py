@@ -7,7 +7,10 @@ from .base import DriverError, InstanceRuntime, InstanceSpec, NodeState, Project
 
 
 def default_nodes() -> list[NodeState]:
-    return [NodeState(f"laptop-{i}", vcpus=8, memory_mib=16384) for i in (1, 2, 3)]
+    return [
+        NodeState(f"laptop-{i}", vcpus=8, memory_mib=16384, address=f"192.168.1.{10 + i}")
+        for i in (1, 2, 3)
+    ]
 
 
 class FakeDriver:
@@ -15,6 +18,7 @@ class FakeDriver:
         self.nodes: dict[str, NodeState] = {n.name: n for n in (nodes or default_nodes())}
         self.projects: dict[str, ProjectLimits] = {}
         self.instances: dict[tuple[str, str], InstanceRuntime] = {}
+        self.public_ports: dict[tuple[str, str], int] = {}  # proxy devices that were added
         self.fail_next: str | None = None  # set a message to make the next call fail
         self._counter = itertools.count(2)
 
@@ -48,6 +52,8 @@ class FakeDriver:
         n = next(self._counter)
         runtime = InstanceRuntime(spec.name, node, "Running", f"10.10.{n // 250}.{n % 250 + 2}")
         self.instances[(spec.project, spec.name)] = runtime
+        if spec.public_port is not None:
+            self.public_ports[(spec.project, spec.name)] = spec.public_port
         return runtime
 
     def start_instance(self, project: str, name: str) -> InstanceRuntime:
@@ -63,9 +69,14 @@ class FakeDriver:
     def delete_instance(self, project: str, name: str) -> None:
         self._maybe_fail()
         self.instances.pop((project, name), None)  # idempotent, like the Incus driver
+        self.public_ports.pop((project, name), None)
 
     def get_instance(self, project: str, name: str) -> InstanceRuntime | None:
         return self.instances.get((project, name))
+
+    def list_instances(self) -> list[InstanceRuntime]:
+        self._maybe_fail()
+        return [replace(rt, project=project) for (project, _), rt in self.instances.items()]
 
     def move_instance(self, project: str, name: str, target_node: str) -> InstanceRuntime:
         self._maybe_fail()

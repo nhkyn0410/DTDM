@@ -4,6 +4,8 @@ Mục tiêu của mốc 1 (hết tuần 2): kiến trúc được chốt và m�
 
 ## Mốc 1: điều kiện để qua
 
+Ngày 2026-11-25, hai điều kiện (tạo máy thật qua API; mở app qua HTTPS từ Internet) đã đạt trên laptop-1 tạm chạy trong WSL. Các ô dưới đây vẫn để trống vì phải đạt lại trên cụm 3 laptop.
+
 - [ ] 3 laptop ở trạng thái Online trong cụm Incus (`incus cluster list`)
 - [ ] Control plane tạo, dừng và xoá được instance thật qua API (smoke test bên dưới)
 - [ ] Mở được một app qua tên miền HTTPS bằng điện thoại dùng 4G
@@ -21,17 +23,20 @@ Mục tiêu của mốc 1 (hết tuần 2): kiến trúc được chốt và m�
 
 ## Vai trò 2: mạng và bảo mật
 
-- [ ] Mua tên miền; chọn VPS hoặc Cloudflare Tunnel
-- [ ] Dựng WireGuard VPS ↔ laptop-1 và Traefik có TLS wildcard theo [infra/edge/README.md](../../infra/edge/README.md)
-- [ ] Đưa một container thử nghiệm ra Internet qua tên miền con HTTPS
+- [x] Tên miền: dùng `vexenhanh.id.vn` có sẵn, DNS đã nằm trên Cloudflare ([ADR-0005](../adr/0005-ten-mien-va-cong-vao.md))
+- [x] Thử Cloudflare Tunnel từ máy dev: `https://cloud-api.vexenhanh.id.vn` chạy qua tunnel `minicloud-wsl` (laptop-1 tạm trên WSL)
+- [ ] Khi cụm đã chạy: chuyển tunnel sang laptop-1, thêm bản ghi wildcard cho app của khách
+- [x] Đưa một container thử nghiệm ra Internet qua tên miền con HTTPS (`hello-…vexenhanh.id.vn`, 2026-11-25)
 - [ ] Rà soát và bổ sung [threat model](../threat-model.md); lên kế hoạch OVN cho tuần 3–5
 
 ## Vai trò 3: control plane lõi
 
 - [ ] Đọc toàn bộ `src/minicloud`, chạy được `uv run pytest`
 - [ ] Nối `IncusDriver` với cụm thật và làm smoke test bên dưới; sửa lỗi phát hiện được
-- [ ] Thêm Alembic thay cho `create_all`
-- [ ] Thêm reconciler: định kỳ đối chiếu trạng thái trong database với Incus
+- [x] Thêm Alembic thay cho `create_all` (2026-11-25; database của staging đã được nhận vào mà không mất dữ liệu)
+- [x] Thêm reconciler: định kỳ đối chiếu trạng thái trong database với Incus (2026-11-25; đã thử trên staging, xem [kiến trúc](../architecture.md#khi-database-và-incus-lệch-nhau-reconciler))
+- [x] Sao lưu database hằng ngày bằng systemd timer, giữ 14 bản (2026-11-25)
+- [ ] Chép bản sao lưu ra ngoài laptop-1 (ví dụ sang laptop-2 bằng `rsync` theo lịch)
 
 ## Vai trò 4: IAM và billing
 
@@ -42,7 +47,7 @@ Mục tiêu của mốc 1 (hết tuần 2): kiến trúc được chốt và m�
 
 ## Vai trò 5: portal và khách hàng
 
-- [ ] Dựng khung web console trong `portal/` (đề xuất Next.js + TypeScript)
+- [x] Dựng khung web console: bản tối thiểu đã chạy ở `/console` (2026-11-25, xem [portal/README.md](../../portal/README.md)); quyết định làm tiếp trên nền này hay làm lại bằng Next.js
 - [ ] Sinh client TypeScript từ `/openapi.json`
 - [ ] Vẽ wireframe các màn: đăng ký, danh sách instance, tạo instance, chi tiết instance và hoá đơn
 - [ ] Viết trang hướng dẫn đầu tiên cho người dùng thử
@@ -56,6 +61,13 @@ Mục tiêu của mốc 1 (hết tuần 2): kiến trúc được chốt và m�
 
 ## Smoke test với cụm thật (vai trò 1 và 3)
 
+Đã chạy trên Incus một node trong WSL2 ngày 2026-11-25 ([cách dựng](../dev-incus-wsl.md)). Lần chạy đầu tìm và sửa hai lỗi, và xác nhận URL công khai tới được cổng 80 của container. Lần thử reconciler trên staging tìm thêm hai lỗi, đều đã sửa và có test:
+
+- Một tổ chức không tạo được máy thứ hai, vì `PATCH` project của Incus 6.0 tắt các khoá `features.*`.
+- Khi không còn tuyến nào, Traefik từ chối file tuyến rỗng và tiếp tục chuyển request tới app đã dừng (502).
+
+Phần riêng của cụm (bước 7 và 8) vẫn phải chạy trên 3 laptop.
+
 Chạy trên laptop-1 sau khi đã có cụm và chạy `infra/node/30-trust-control-plane.sh`:
 
 1. Tạo file `.env` từ `.env.example`, đặt `MINICLOUD_DRIVER=incus` và đường dẫn tới ba chứng chỉ.
@@ -66,6 +78,7 @@ Chạy trên laptop-1 sau khi đã có cụm và chạy `infra/node/30-trust-con
    - `incus list --all-projects` có instance mới.
    - `incus project show mc-…` có `restricted: "true"` và đủ `limits.*`.
 6. Dừng, chạy lại rồi xoá instance qua API. Sau mỗi bước, so trạng thái trên API với `incus list`.
-7. Tạo 3 instance và kiểm tra chúng được dàn lên 3 laptop.
+7. Tạo 3 instance trong cùng một tổ chức và kiểm tra chúng được dàn lên 3 laptop.
+8. Chạy `incus cluster evacuate laptop-2`. Trong vòng một phút, reconciler phải ghi node mới cho các instance bị chuyển (`GET /v1/instances/{id}`), và URL công khai vẫn mở được. Sau đó chạy `incus cluster restore laptop-2`.
 
 Nếu gặp `CERTIFICATE_VERIFY_FAILED`, tạm đặt `MINICLOUD_INCUS_VERIFY=false` và bỏ trống `MINICLOUD_INCUS_CA_CERT` để thử tiếp, rồi báo vai trò 2 xử lý.

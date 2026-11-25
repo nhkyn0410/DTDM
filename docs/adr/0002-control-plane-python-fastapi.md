@@ -25,5 +25,5 @@ Nhóm có 6 người với trình độ lập trình khác nhau và 12 tuần. �
 ## Hệ quả
 
 - Client Incus tự viết nằm ở `drivers/incus.py`, có test với API giả; phải chạy smoke test trên cụm thật trước khi tin.
-- Cần thêm Alembic trước khi có dữ liệu thật của người dùng thử (vai trò 3).
+- Cần thêm Alembic trước khi có dữ liệu thật của người dùng thử (vai trò 3). Đã làm ngày 2026-11-25: app tự migrate khi khởi động, script 50 sao lưu rồi mới migrate.
 - Mọi logic có `now` truyền vào được, nên test tính tiền không phụ thuộc đồng hồ thật.

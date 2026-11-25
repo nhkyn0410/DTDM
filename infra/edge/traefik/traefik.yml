@@ -1,0 +1,16 @@
+# Traefik trên laptop-1 (cấu hình tĩnh). cloudflared chuyển mọi *.vexenhanh.id.vn tới cổng 8080;
+# Traefik định tuyến theo file do control plane sinh ra (MINICLOUD_INGRESS_ROUTES_FILE).
+# Chạy:  traefik --configFile=/etc/traefik/traefik.yml
+entryPoints:
+  web:
+    address: "127.0.0.1:8080" # chỉ cloudflared trên cùng máy gọi vào
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic # control plane ghi minicloud.yml vào đây
+    watch: true
+
+log:
+  level: INFO
+
+accessLog: {}

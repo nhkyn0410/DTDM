@@ -21,6 +21,15 @@ def test_an_email_registers_only_once(client, signup):
     assert again.status_code == 409
 
 
+def test_an_invite_code_can_be_required(app, client, settings):
+    settings.signup_invite_code = "lop-dtdm-2026"
+    body = {"email": "moi@example.com", "name": "Ban moi", "org_name": "Nhom moi"}
+    assert client.post("/v1/signup", json=body).status_code == 403
+    assert client.post("/v1/signup", json={**body, "invite_code": "sai"}).status_code == 403
+    accepted = client.post("/v1/signup", json={**body, "invite_code": "lop-dtdm-2026"})
+    assert accepted.status_code == 201
+
+
 def test_requests_without_a_valid_key_are_rejected(client):
     assert client.get("/v1/me").status_code == 401
     bad = client.get("/v1/me", headers={"Authorization": "Bearer mc_khong_hop_le"})

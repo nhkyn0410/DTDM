@@ -1,19 +1,92 @@
+from dataclasses import asdict
 from datetime import timedelta
+from typing import Any
 
 from fastapi import APIRouter
 from sqlalchemy import select
 
+from .. import audit, ingress, reconciler
 from ..catalog import FLAVORS
 from ..errors import NotFound
 from ..green.planner import PlanInstance, PlannerConfig, PlanNode, plan_consolidation
-from ..models import Instance, InstanceStatus, Organization, utcnow
+from ..models import Instance, InstanceStatus, Organization, Project, utcnow
 from ..scheduler import Allocation
-from ..schemas import BillingOut, CreditsIn, GreenPlanOut, MigrationOut, NodeOut
+from ..schemas import (
+    BillingOut,
+    CreditsIn,
+    GreenPlanOut,
+    InstanceOut,
+    MigrationOut,
+    NodeOut,
+    ReconcileOut,
+)
 from ..services import metering
 from ..services.instances import current_allocations
+from ..worker import sync_ingress
 from .deps import DB, AdminUser, AppSettings, Driver
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _set_published(
+    instance_id: str,
+    published: bool,
+    admin: AdminUser,
+    db: DB,
+    driver: Driver,
+    settings: AppSettings,
+) -> Instance:
+    inst = db.get(Instance, instance_id)
+    if inst is None:
+        raise NotFound("instance not found")
+    inst.public_blocked = not published
+    project = db.get(Project, inst.project_id)
+    audit.record(
+        db,
+        action="instance.publish" if published else "instance.unpublish",
+        target_type="instance",
+        target_id=inst.id,
+        actor_id=admin.id,
+        org_id=project.org_id,
+    )
+    db.commit()
+    sync_ingress(db, driver, settings)
+    return inst
+
+
+@router.post("/instances/{instance_id}/unpublish", response_model=InstanceOut)
+def unpublish(
+    instance_id: str, admin: AdminUser, db: DB, driver: Driver, settings: AppSettings
+) -> Instance:
+    """Gỡ URL công khai của một instance ngay (khi có báo cáo lạm dụng). Máy vẫn chạy."""
+    return _set_published(instance_id, False, admin, db, driver, settings)
+
+
+@router.post("/instances/{instance_id}/publish", response_model=InstanceOut)
+def publish(
+    instance_id: str, admin: AdminUser, db: DB, driver: Driver, settings: AppSettings
+) -> Instance:
+    """Mở lại URL công khai đã gỡ."""
+    return _set_published(instance_id, True, admin, db, driver, settings)
+
+
+@router.get("/ingress")
+def ingress_routes(admin: AdminUser, db: DB, driver: Driver) -> dict[str, Any]:
+    """Cấu hình định tuyến Traefik mà control plane đang sinh ra (để kiểm tra)."""
+    return ingress.build_routes(db, ingress.node_addresses(driver))
+
+
+@router.post("/reconcile", response_model=ReconcileOut)
+def reconcile(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) -> ReconcileOut:
+    """Đối chiếu ngay database với Incus (worker vẫn tự làm việc này mỗi phút).
+
+    Sửa trạng thái các instance bị đổi ngoài minicloud, chạy lại lệnh xoá bị gián đoạn, và
+    liệt kê instance có trong Incus mà minicloud không biết (orphans, chỉ báo, không xoá).
+    """
+    report = reconciler.reconcile(db, driver, settings)
+    if report.changes:
+        sync_ingress(db, driver, settings)
+    return ReconcileOut.model_validate(asdict(report))
 
 
 @router.post("/orgs/{org_id}/credits", response_model=BillingOut)

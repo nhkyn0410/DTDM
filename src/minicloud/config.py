@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     incus_verify: bool = True
     incus_image_server: str = "https://images.linuxcontainers.org"
     incus_storage_pool: str = "local"
+    incus_network: str = "incusbr0"
 
     # Placement of new instances
     placement_policy: str = "spread"  # "spread" or "binpack"
@@ -28,6 +29,9 @@ class Settings(BaseSettings):
 
     # Billing
     trial_credits: int = 500
+    # When set, sign-up needs this code, so strangers who find the public API cannot use the
+    # laptops. Leave empty only on a dev machine that is not reachable from the Internet.
+    signup_invite_code: str = ""
 
     # Green cloud planner
     green_min_awake: int = 1
@@ -39,6 +43,12 @@ class Settings(BaseSettings):
     run_worker: bool = True
     worker_interval_seconds: float = 2.0
     metering_interval_seconds: float = 60.0
+
+    # Public URLs for customer apps (ADR-0005). Empty public_domain turns the feature off.
+    public_domain: str = ""  # e.g. vexenhanh.id.vn -> https://<instance>.vexenhanh.id.vn
+    ingress_routes_file: str = ""  # Traefik dynamic config the control plane rewrites
+    public_port_min: int = 20000
+    public_port_max: int = 29999
 
     # Web console origins allowed to call the API from a browser (comma separated)
     cors_origins: str = "http://localhost:3000"

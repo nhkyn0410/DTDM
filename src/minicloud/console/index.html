@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>minicloud</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">minicloud</span>
+    <span id="who" class="who"></span>
+    <button id="logout" class="link" type="button" hidden>Đăng xuất</button>
+  </header>
+  <div id="banner" class="banner" role="alert" hidden></div>
+
+  <main>
+    <section id="auth" hidden>
+      <h1>Thuê máy trên cụm laptop của nhóm</h1>
+      <p class="muted">Container hoặc máy ảo Ubuntu, tính tiền theo giây bằng credit, mỗi container có một địa chỉ HTTPS riêng.</p>
+      <div class="tabs" role="tablist">
+        <button class="tab active" type="button" data-tab="signup">Đăng ký</button>
+        <button class="tab" type="button" data-tab="login">Đã có API key</button>
+      </div>
+      <form id="signup-form" class="card">
+        <label>Email <input name="email" type="email" required autocomplete="email"></label>
+        <label>Tên của bạn <input name="name" required maxlength="120" autocomplete="name"></label>
+        <label>Tên nhóm hoặc tổ chức <input name="org_name" required minlength="2" maxlength="120"></label>
+        <label>Mã mời <input name="invite_code" maxlength="64" autocomplete="off"></label>
+        <button type="submit" class="primary">Tạo tài khoản</button>
+      </form>
+      <form id="login-form" class="card" hidden>
+        <label>API key <input name="api_key" required autocomplete="off" placeholder="mc_…"></label>
+        <button type="submit" class="primary">Vào bảng điều khiển</button>
+      </form>
+    </section>
+
+    <section id="new-key" class="card warn" hidden>
+      <h2>Lưu API key của bạn</h2>
+      <p>Key này chỉ hiện một lần. Nó vừa để đăng nhập lại bảng điều khiển, vừa để gọi API.</p>
+      <code id="new-key-value" class="key"></code>
+      <div class="row">
+        <button id="copy-key" type="button">Sao chép</button>
+        <button id="key-saved" type="button" class="primary">Tôi đã lưu, tiếp tục</button>
+      </div>
+    </section>
+
+    <section id="dash" hidden>
+      <div class="stats">
+        <div class="stat"><span class="label">Số dư</span><span id="credits" class="value"></span><span class="unit">credit</span></div>
+        <div class="stat"><span class="label">Đã dùng trong 24 giờ</span><span id="spent" class="value"></span><span class="unit">credit</span></div>
+      </div>
+      <p id="suspended" class="banner error" hidden>Tổ chức đã hết credit nên các máy bị dừng. Nhờ nhóm vận hành nạp thêm.</p>
+
+      <h2>Máy của bạn <span id="project-name" class="muted small"></span></h2>
+      <ul id="instances" class="instances"></ul>
+      <p id="no-instances" class="muted" hidden>Chưa có máy nào. Tạo máy đầu tiên ở bên dưới.</p>
+
+      <h2>Tạo máy mới</h2>
+      <form id="create-form" class="card">
+        <label>Tên
+          <input name="name" required pattern="[a-z][a-z0-9\-]{0,30}[a-z0-9]" placeholder="web-1"
+                 title="Chữ thường, số và dấu gạch ngang, bắt đầu bằng chữ, 2–32 ký tự">
+        </label>
+        <label>Loại
+          <select name="type">
+            <option value="container">Container: rẻ, chạy trong vài giây</option>
+            <option value="virtual-machine">Máy ảo: cô lập mạnh, giá gấp 1,5 lần</option>
+          </select>
+        </label>
+        <label>Cấu hình <select name="flavor" id="flavor"></select></label>
+        <label>Hệ điều hành <select name="image" id="image"></select></label>
+        <label>SSH public key (không bắt buộc)
+          <textarea name="ssh_key" rows="2" placeholder="ssh-ed25519 AAAA… ban@may"></textarea>
+        </label>
+        <button type="submit" class="primary">Tạo máy</button>
+      </form>
+      <p class="muted small">Mỗi container có một địa chỉ HTTPS riêng, trỏ tới cổng 80 bên trong: hãy chạy web server ở cổng 80.</p>
+
+      <h2>Lịch sử tính tiền</h2>
+      <div class="table-wrap">
+        <table class="usage">
+          <thead><tr><th>Lúc</th><th>Máy</th><th>Loại</th><th>Giây</th><th>Credit</th></tr></thead>
+          <tbody id="usage"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="muted small">minicloud · đồ án Điện toán đám mây · <a href="/docs">Tài liệu API</a></footer>
+</body>
+</html>

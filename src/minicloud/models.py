@@ -159,6 +159,18 @@ class Instance(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Public URL: Traefik routes public_hostname to <laptop address>:public_port, where a proxy
+    # device forwards to port 80 inside the container. Ports are unique across the cluster so an
+    # instance keeps its port when the Green planner moves it to another laptop.
+    public_hostname: Mapped[str | None] = mapped_column(String(253), nullable=True)
+    public_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    public_blocked: Mapped[bool] = mapped_column(Boolean, default=False)  # admin kill switch
+
+    @property
+    def public_url(self) -> str | None:
+        if self.public_hostname and self.public_port and not self.public_blocked:
+            return f"https://{self.public_hostname}"
+        return None
 
 
 class Operation(Base):
