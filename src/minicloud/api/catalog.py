@@ -53,4 +53,8 @@ def pricing(settings: AppSettings) -> PricingOut:
 
 @router.get("/catalog/images", response_model=list[ImageOut])
 def images() -> list[ImageOut]:
-    return [ImageOut(key=i.key, title=i.title, supports_vm=i.supports_vm) for i in IMAGES.values()]
+    return [
+        ImageOut(key=i.key, title=i.title, supports_vm=i.supports_vm)
+        for i in IMAGES.values()
+        if i.public
+    ]

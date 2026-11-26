@@ -4,7 +4,7 @@ Bảy màn theo mục 8 của đề cương, thêm màn 1b về triển khai t�
 
 ## Chuẩn bị (tối thứ Sáu, kiểm tra lại lúc 7:00 sáng thứ Bảy)
 
-- [ ] laptop-1 cắm sạc, tắt chế độ ngủ khi gập máy, WSL đang chạy (tác vụ `minicloud-wsl` của `infra/wsl/setup-windows.ps1`). Đã thử ngày 26/11: khởi động lại Windows thì staging tự chạy lại sau khoảng 80 giây, không cần đăng nhập.
+- [ ] laptop-1 **để ở nhà** (chốt ngày 26/11), cắm sạc, WSL đang chạy (tác vụ `minicloud-wsl` của `infra/wsl/setup-windows.ps1`). Đã thử ngày 26/11: khởi động lại Windows thì staging tự chạy lại sau khoảng 80 giây, không cần đăng nhập. Ở lớp trình chiếu bằng laptop khác, qua Internet; mọi lệnh phải chạy trên laptop-1 (`minicloud-admin`, cụm ảo) thì làm trước ở nhà hoặc chiếu video.
 - [ ] `https://cloud-api.vexenhanh.id.vn/healthz` trả `{"status":"ok"}`; app `hello` mở được.
 - [ ] Hai tài khoản đã đăng ký sẵn, mỗi tài khoản một trình duyệt (hoặc một cửa sổ ẩn danh):
   - **Khách A:** có một container `web-1` đang chạy nginx;
@@ -16,6 +16,21 @@ Bảy màn theo mục 8 của đề cương, thêm màn 1b về triển khai t�
 - [ ] Điện thoại dùng 4G (tắt Wi-Fi) đã mở `https://cloud.vexenhanh.id.vn`.
 - [ ] Video quay sẵn từng màn nằm trong một thư mục trên máy trình chiếu.
 
+## Video dự phòng cần quay
+
+Quay ở nhà trước tối thứ Sáu, mỗi video 1–3 phút. Mọi màn quay được từ bất kỳ máy nào có trình duyệt; riêng các dòng ghi "laptop-1" thì phải làm trên laptop-1.
+
+| Video | Nội dung chính | Ghi chú |
+| --- | --- | --- |
+| 1 | Màn 1: đăng ký trên điện thoại, tạo `demo-1`, chạy 2 lệnh mẫu, mở trang HTTPS | Quay màn hình điện thoại; không để lộ mã mời và API key |
+| 1b | Màn 1b: dán link GitHub, các bước hiện dần, trang Express (khoảng 30 giây), triển khai lại bằng `python-flask.zip` | Tên máy khác `shop` nếu `shop` đã có |
+| 2 | Màn 2: điện thoại dùng 4G mở app và chạy `uptime` | Có thể gộp vào video 1 |
+| 3 | Màn 3: B gọi máy của A trên `/docs` được 404, audit log của A, B `ping` máy A không tới, `curl example.com` vẫn được | Che key khi bấm Authorize; kết quả "hàng xóm ồn ào" để ở slide |
+| 4 | Màn 4: `load.py` 5 phút, nhóm `web` lên 2 rồi 3 máy | Quay đủ, cắt hoặc tua nhanh còn 2–3 phút |
+| 5 | Màn 5: đồng hồ tiền, sao kê PDF và CSV, B hết credit thì bị khoá | Lệnh trừ credit chạy trên laptop-1; quay cuối cùng vì B bị khoá |
+| 7 | Màn 7, bước 1–3: thẻ Điện năng, mục Nhà cung cấp, `green/plan` | Đăng nhập bằng tài khoản admin |
+| 6, 7b | Cụm ảo: evacuate, node ngủ rồi thức, restore | laptop-1, cần dựng cụm ảo; không quay thì thay bằng slide kết quả ngày 25/11 |
+
 ## Màn 1. Khách hàng mới: tự phục vụ
 
 1. Một bạn trong lớp đăng ký trên điện thoại với mã mời, lưu API key, nhận 500 credit.
@@ -25,14 +40,15 @@ Bảy màn theo mục 8 của đề cương, thêm màn 1b về triển khai t�
 
 Đạt khi: nhóm không phải làm gì giúp người dùng.
 
-## Màn 1b. Tải zip lên là chạy (PaaS)
+## Màn 1b. Dán link GitHub hoặc tải zip lên là chạy (PaaS)
 
 Cho thấy minicloud không chỉ cho thuê máy (IaaS) mà còn chạy hộ ứng dụng (PaaS), như Vercel hay Heroku.
 
-1. Trên console, mục **Triển khai ứng dụng**: đặt tên `shop`, chọn file `node-express.zip` (tải sẵn từ mục 5 của trang hướng dẫn), bấm **Triển khai**. Console báo ngay "Nhận ra: Node.js (Express, npm start)".
-2. Khung **Triển khai** hiện dần các bước: chờ máy khởi động, tải Node.js, `npm install`, khởi động. Trong lúc chờ, giải thích: code của khách chỉ được giải nén và chạy trong container của chính họ; control plane chỉ đọc danh sách file.
-3. Khi hiện "Đã chạy", bấm địa chỉ HTTPS của máy: trang "Xin chào từ minicloud" của Express. Trên staging (26/11), Express xong sau 40 giây.
-4. Bấm **Triển khai lại** ở máy `shop`, chọn `python-flask.zip`: cùng địa chỉ, giờ là Flask. Trong lúc cài, bản Node.js cũ vẫn trả lời. Trên staging, đổi FastAPI sang Flask mất 14 giây và trang không lúc nào ngừng trả lời.
+1. **Từ GitHub:** trên console, mục **Triển khai ứng dụng**, chọn nguồn **Link GitHub**, đặt tên `shop`, dán `https://github.com/nhkyn0410/DTDM/tree/main/examples/apps/node-express` (một thư mục trong chính repo đồ án), bấm **Triển khai**. Console báo ngay "Nhận ra: Node.js (Express, npm start)".
+2. Khung **Triển khai** hiện dần các bước: chờ máy khởi động, `npm install`, khởi động. Trong lúc chờ, giải thích: control plane chỉ tải repo từ `codeload.github.com` và đọc danh sách file; code của khách chỉ được giải nén và chạy trong container của chính họ.
+3. Khi hiện "Đã chạy", bấm địa chỉ HTTPS của máy: trang "Xin chào từ minicloud" của Express. Trên staging (26/11, ảnh có sẵn runtime), link này nhận diện xong sau 1,7 giây, và trang chạy sau 27 giây.
+4. **Từ file zip:** bấm **Triển khai lại bằng zip** ở máy `shop`, chọn `python-flask.zip`: cùng địa chỉ, giờ là Flask. Trong lúc cài, bản Node.js cũ vẫn trả lời. Trên staging, đổi FastAPI sang Flask mất 14 giây và trang không lúc nào ngừng trả lời.
+5. Nếu còn thời gian: bấm **Lấy bản mới từ GitHub** để cho thấy vòng sửa code, push, cập nhật.
 
 Đạt khi: không ai phải gõ lệnh. Nếu mạng ở chỗ demo chậm, dùng web tĩnh (`static-site.zip`), loại nhanh nhất, hoặc chiếu video.
 
@@ -69,6 +85,8 @@ Trên điện thoại 4G: mở app của màn 1, rồi mở console và chạy `
    ```
 
    Ở lượt tính tiền kế tiếp (tối đa 1 phút), tổ chức B bị khoá và máy của B bị dừng. Console của B hiện "Tổ chức đã hết credit".
+
+   Lệnh này chạy trên laptop-1, mà laptop-1 để ở nhà, nên lúc demo bước 3 chiếu video quay sẵn.
 
 ## Màn 6. Rút điện một node
 

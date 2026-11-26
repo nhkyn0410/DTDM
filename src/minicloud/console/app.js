@@ -26,7 +26,8 @@ const ERROR_TEXT = {
   rate_limited: "Thử quá nhiều lần, hãy chờ một lúc rồi thử lại",
   invalid_month: "Tháng không hợp lệ",
   too_large: "File quá lớn",
-  invalid_upload: "Chưa triển khai được file này",
+  invalid_upload: "Chưa triển khai được",
+  upstream_error: "GitHub chưa trả lời được",
 };
 const DEPLOY_TEXT = { pending: "Chờ máy chạy", building: "Đang cài đặt", succeeded: "Đã chạy", failed: "Lỗi" };
 const DEPLOY_BADGE = { succeeded: "running", failed: "error" };
@@ -393,7 +394,10 @@ function renderInstances(list) {
     if (deployment) {
       actions.append(actionButton("Xem log triển khai", () => openDeployLog(inst)));
       if (inst.status === "running" && !DEPLOYING.has(deployment.status)) {
-        actions.append(actionButton("Triển khai lại", () => chooseRedeploy(inst)));
+        if (deployment.source_url) {
+          actions.append(actionButton("Lấy bản mới từ GitHub", () => fetchNewVersion(inst)));
+        }
+        actions.append(actionButton("Triển khai lại bằng zip", () => chooseRedeploy(inst)));
       }
     }
     if (["running", "stopped", "error"].includes(inst.status)) {
@@ -542,6 +546,20 @@ function chooseRedeploy(inst) {
   state.redeployTarget = inst;
   $("redeploy-file").value = "";
   $("redeploy-file").click(); // the change handler below sends the chosen zip
+}
+
+async function fetchNewVersion(inst) {
+  clearBanner();
+  const dep = await api("POST", `/v1/instances/${inst.id}/deployments/github`, {});
+  banner(`Đã tải ${dep.source} từ GitHub. Đang triển khai vào ${inst.name}; địa chỉ giữ nguyên.`, "info");
+  await refresh();
+  await openDeployLog(inst);
+}
+
+function showSourceFields() {
+  const github = $("app-form").elements.source.value === "github";
+  $("app-git-field").hidden = !github;
+  $("app-zip-field").hidden = github;
 }
 
 const statTile = (label, value, unit) => el("div", { class: "stat" },
@@ -964,14 +982,24 @@ $("app-form").addEventListener("submit", async (event) => {
   clearBanner();
   const formNode = event.currentTarget;
   const name = String(formNode.elements.name.value || "").trim();
-  const file = formNode.elements.archive.files[0];
+  const flavor = formNode.elements.flavor.value;
   const submit = formNode.querySelector("button[type=submit]");
   submit.disabled = true;
   try {
-    checkZip(file);
-    const query = new URLSearchParams({ name, flavor: formNode.elements.flavor.value, filename: file.name });
-    const created = await api("POST", `/v1/projects/${state.project.id}/apps?${query}`, file);
+    let created;
+    if (formNode.elements.source.value === "github") {
+      const url = String(formNode.elements.url.value || "").trim();
+      if (!url) throw new Error("Hãy dán link repo GitHub.");
+      banner("Đang tải repo từ GitHub…", "info");
+      created = await api("POST", `/v1/projects/${state.project.id}/apps/github`, { name, flavor, url });
+    } else {
+      const file = formNode.elements.archive.files[0];
+      checkZip(file);
+      const query = new URLSearchParams({ name, flavor, filename: file.name });
+      created = await api("POST", `/v1/projects/${state.project.id}/apps?${query}`, file);
+    }
     formNode.reset();
+    showSourceFields();
     banner(`Nhận ra: ${created.deployment.stack_label}. Đang tạo máy ${name} rồi cài đặt, thường mất 1–2 phút.`, "info");
     await refresh();
     await openDeployLog(created.instance);
@@ -998,6 +1026,8 @@ $("redeploy-file").addEventListener("change", async (event) => {
     showError(err);
   }
 });
+
+for (const radio of $("app-form").elements.source) radio.addEventListener("change", showSourceFields);
 
 $("deploy-close").addEventListener("click", () => {
   $("deploy-log").hidden = true;

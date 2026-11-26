@@ -93,6 +93,7 @@ def create_app(settings: Settings | None = None, driver: ComputeDriver | None = 
     app.state.signup_limiter = RateLimiter(settings.rate_limit_signups_per_hour, 3600)
     app.state.auth_failure_limiter = RateLimiter(settings.rate_limit_auth_failures, 600)
     app.state.exec_limiter = RateLimiter(settings.rate_limit_execs, 600)  # per user
+    app.state.git_limiter = RateLimiter(settings.rate_limit_git_fetches, 600)  # per user
     app.state.execs = {}  # commands started in instances, by id (api/instances.py)
     app.add_middleware(
         CORSMiddleware,

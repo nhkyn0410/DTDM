@@ -138,7 +138,7 @@ Mỗi lần đổi số máy được ghi audit `group.scale`, kèm số máy tr
 
 App mẫu để thử (`console/demo-app.sh`): mỗi request tốn khoảng 0,1 giây CPU và trang cho biết máy nào trả lời. Bắn tải bằng `infra/bench/load.py` (hoặc k6) để thấy request được chia sang máy mới.
 
-## Triển khai ứng dụng từ file zip (lớp PaaS)
+## Triển khai ứng dụng từ file zip hoặc GitHub (lớp PaaS)
 
 Khách gửi file zip mã nguồn (`POST /v1/projects/{id}/apps`, body `application/zip`, tối đa 25 MB). minicloud tạo một container như mọi máy khác rồi cài ứng dụng vào đó, nên tính tiền, quota, địa chỉ HTTPS, điện năng và bảng Nhà cung cấp đều dùng lại.
 
@@ -172,7 +172,49 @@ Thử trên staging ngày 26/11 với 6 ứng dụng mẫu, tính từ lúc gử
 
 Web tĩnh, Flask và PHP chạy cùng lúc 4 bản triển khai. Phần lớn thời gian là tải gói (apt, Node.js, npm, pip). Triển khai lại FastAPI thành Flask trên cùng máy mất 14 giây, và trong lúc đổi, trang không lúc nào ngừng trả lời.
 
-Giới hạn hiện tại: không có Dockerfile, database đi kèm, biến môi trường đặt từ giao diện, tên miền riêng, hay tự triển khai khi `git push`. Ứng dụng mẫu nằm trong `examples/apps` và được nén sẵn vào `console/samples/` (`uv run python examples/apps/make_zips.py`).
+### Nguồn là một repo GitHub
+
+`POST /v1/projects/{id}/apps/github` nhận link repo công khai, ví dụ `https://github.com/an/shop`, hoặc `…/tree/<nhánh>/<thư mục>` để lấy một nhánh khác hay chỉ một thư mục của repo. `services/github.py` tải repo dạng zip ngay trong request, rồi đi tiếp như một file zip tải lên.
+
+- **Chống SSRF:** chỉ nhận link `github.com`; tên chủ, tên repo, nhánh và thư mục phải khớp mẫu. Địa chỉ tải do minicloud tự ghép, luôn là `codeload.github.com/<chủ>/<repo>/zip/<nhánh hoặc HEAD>`, nên link của khách không thể khiến control plane gọi tới nơi khác.
+- **Giới hạn:** 25 MB và 60 giây cho mỗi lần tải; mỗi người tối đa 20 lần mỗi 10 phút.
+- **Chỉ tra IPv4:** trên staging (WSL), truy vấn AAAA cho GitHub chờ 15 giây mà không có kết quả, còn bản ghi A về sau 50 ms. Thêm nữa, các laptop không có IPv6.
+- **Lấy bản mới:** bản triển khai lưu link (`deployments.source_url`), nên `POST /v1/instances/{id}/deployments/github` tải lại đúng link đó. Thư mục con được truyền cho buildpack bằng `--subdir`.
+
+Thử trên staging ngày 26/11, mỗi repo được tải và nhận diện trong khoảng 0,5 giây:
+
+| Repo | Nhận là | Trang chạy sau |
+| --- | --- | --- |
+| `octocat/Spoon-Knife` | Web tĩnh | 32 giây |
+| `heroku/node-js-getting-started`, một app Node.js có sẵn ngoài thực tế | Procfile (`node index.js`) | 42 giây |
+| `nhkyn0410/DTDM/tree/main/examples/apps/python-flask`, một thư mục của repo đồ án | Flask | 52 giây |
+
+### Ảnh có sẵn runtime
+
+Phần lớn thời gian triển khai là tải gói. `infra/node/70-app-image.sh` dựng ảnh `minicloud-app-base`: Ubuntu 24.04 cài sẵn nginx, Apache với PHP, composer, python3-venv và Node.js 22.14. Ảnh nằm trong project `default`, và mọi project của khách dùng chung kho ảnh đó (`features.images=false`).
+
+Đặt `MINICLOUD_APP_IMAGE=app-base` thì control plane tạo máy cho ứng dụng từ ảnh này. Driver nhận alias dạng `local:<tên>`. Khách không thấy ảnh trong danh sách hệ điều hành, và API cũng không cho khách chọn ảnh này. Buildpack tự bỏ qua gói đã cài và Node.js đúng phiên bản.
+
+Hai chỗ phải cẩn thận khi đóng ảnh:
+
+- **machine-id riêng:** `cloud-init clean --machine-id` xoá machine-id, để mỗi máy tạo từ ảnh có machine-id riêng. Dùng chung thì DHCP có thể cấp trùng IP. Đã kiểm tra: 7 máy, 7 machine-id và 7 IP khác nhau.
+- **Preset của systemd:** lần khởi động đầu, machine-id còn trống nên systemd chạy `preset-all` và bật lại mọi dịch vụ đã tắt. Lần thử đầu, nginx và Apache vì vậy cùng chạy và giành cổng 80 (Apache báo "failed"). File `/etc/systemd/system-preset/10-minicloud.preset` giữ hai dịch vụ này tắt.
+
+Thử trên staging ngày 26/11, tính từ lúc gửi tới lúc trang công khai trả lời:
+
+| Ứng dụng | Ảnh Ubuntu thường | Ảnh có sẵn runtime |
+| --- | --- | --- |
+| Web tĩnh | 67 giây | 20 giây |
+| PHP | 130 giây | 26 giây |
+| Express | 40 giây | 31 giây |
+| FastAPI | 61 giây | 31 giây |
+| Flask | 73 giây | 32 giây |
+| Vite | 81 giây | 36 giây |
+| Express từ link GitHub (thư mục `examples/apps/node-express` của repo đồ án) | | 27 giây |
+
+Mỗi lần có 3–4 bản triển khai chạy cùng lúc. Dựng ảnh mất khoảng 2 phút, ảnh nặng 238 MiB. Chạy lại script để cập nhật gói; máy đang chạy không bị ảnh hưởng.
+
+Giới hạn hiện tại: không có Dockerfile, database đi kèm, biến môi trường đặt từ giao diện, tên miền riêng, repo riêng tư, hay tự triển khai khi `git push` (cần webhook). Ứng dụng mẫu nằm trong `examples/apps` và được nén sẵn vào `console/samples/` (`uv run python examples/apps/make_zips.py`).
 
 ## Cô lập giữa các tenant
 

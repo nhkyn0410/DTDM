@@ -1,8 +1,9 @@
-"""Apps uploaded as a zip: the PaaS layer on top of instances.
+"""Apps from a zip or a public GitHub repository: the PaaS layer on top of instances.
 
 A deployment waits until its container runs. The worker then copies the buildpack and the zip
 into the container and starts the buildpack there; on later iterations it only asks whether the
 buildpack has finished, so other customers' requests are not held up while an app installs.
+A GitHub repository is fetched as a zip when it is asked for, then follows the same path.
 """
 
 import json
@@ -14,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import audit, buildpack
+from ..catalog import IMAGES
 from ..config import Settings
 from ..drivers.base import ComputeDriver, DriverError
 from ..errors import Conflict, FeatureUnavailable, InvalidUpload, PayloadTooLarge
@@ -28,6 +30,7 @@ from ..models import (
     User,
     utcnow,
 )
+from . import github
 from . import instances as instance_service
 
 log = logging.getLogger("minicloud.deploys")
@@ -35,7 +38,7 @@ log = logging.getLogger("minicloud.deploys")
 BUILDPACK_SOURCE = Path(buildpack.__file__)
 CONTAINER_BUILDPACK = "/root/minicloud-buildpack.py"
 CONTAINER_ARCHIVE = "/root/minicloud-app.zip"
-IMAGE = "ubuntu-24.04"
+DEFAULT_IMAGE = "ubuntu-24.04"
 LOG_LIMIT = 32 * 1024  # characters of buildpack output kept per deployment
 ACTIVE = (DeploymentStatus.pending, DeploymentStatus.building)
 # An app can still be sent to an instance in these states; it waits for the instance to run.
@@ -47,26 +50,45 @@ DEPLOYABLE = (
 )
 
 
-def check_upload(data: bytes, settings: Settings) -> buildpack.Plan:
-    """Refuse an upload that cannot work before anything is created or charged."""
+def require_enabled(settings: Settings) -> None:
     if not settings.apps_enabled:
-        raise FeatureUnavailable("deploying apps from a zip is turned off on this cluster")
+        raise FeatureUnavailable("deploying apps is turned off on this cluster")
+
+
+def check_upload(data: bytes, settings: Settings, subdir: str = "") -> buildpack.Plan:
+    """Refuse an upload that cannot work before anything is created or charged."""
+    require_enabled(settings)
     if not data:
         raise InvalidUpload("Chưa có file zip trong request.")
     if len(data) > settings.app_max_zip_mib * 1024 * 1024:
         raise PayloadTooLarge(f"File zip lớn hơn {settings.app_max_zip_mib} MB.")
     try:
-        archive = buildpack.inspect_archive(data)
+        archive = buildpack.inspect_archive(data, subdir)
         return buildpack.detect(archive.names, archive.read_text)
     except buildpack.UploadError as exc:
         raise InvalidUpload(str(exc)) from None
 
 
+def _size(size: int) -> str:
+    if size >= 100 * 1024:
+        return f"{size / 2**20:.1f} MB"
+    return f"{max(1, round(size / 1024))} KB"
+
+
 def describe_source(filename: str | None, size: int) -> str:
     name = (filename or "").replace("\\", "/").rsplit("/", 1)[-1][:120] or "app.zip"
-    if size >= 100 * 1024:
-        return f"{name}, {size / 2**20:.1f} MB"
-    return f"{name}, {max(1, round(size / 1024))} KB"
+    return f"{name}, {_size(size)}"
+
+
+def _fetch(source: github.GitSource, settings: Settings) -> tuple[bytes, buildpack.Plan]:
+    require_enabled(settings)
+    data = github.download(source, settings.app_max_zip_mib * 1024 * 1024)
+    return data, check_upload(data, settings, source.subdir)
+
+
+def app_image(settings: Settings) -> str:
+    """The image apps run on: one with the runtimes inside, once an operator has built it."""
+    return settings.app_image if settings.app_image in IMAGES else DEFAULT_IMAGE
 
 
 def create_app(
@@ -81,17 +103,61 @@ def create_app(
     settings: Settings,
 ) -> tuple[Instance, Operation, Deployment]:
     plan = check_upload(data, settings)
-    inst, op = instance_service.create_instance(
+    inst, op = _app_instance(db, user, project, name, flavor, settings)
+    return (
+        inst,
+        op,
+        _new_deployment(db, user, inst, project, plan, data, describe_source(filename, len(data))),
+    )
+
+
+def create_app_from_git(
+    db: Session,
+    user: User,
+    project: Project,
+    *,
+    name: str,
+    flavor: str,
+    url: str,
+    settings: Settings,
+) -> tuple[Instance, Operation, Deployment]:
+    source = github.parse_url(url)
+    data, plan = _fetch(source, settings)
+    inst, op = _app_instance(db, user, project, name, flavor, settings)
+    described = _git_source(source, data)
+    return inst, op, _new_deployment(db, user, inst, project, plan, data, described, source.url)
+
+
+def _git_source(source: github.GitSource, data: bytes) -> str:
+    return f"{source.label}, {_size(len(data))}"
+
+
+def _app_instance(
+    db: Session, user: User, project: Project, name: str, flavor: str, settings: Settings
+) -> tuple[Instance, Operation]:
+    return instance_service.create_instance(
         db,
         user,
         project,
         name=name,
         instance_type=InstanceType.container,
         flavor_name=flavor,
-        image_key=IMAGE,
+        image_key=app_image(settings),
         ssh_keys=[],
+        internal=True,
     )
-    return inst, op, _new_deployment(db, user, inst, project, plan, data, filename)
+
+
+def _check_redeployable(db: Session, inst: Instance) -> None:
+    if inst.type != InstanceType.container:
+        raise Conflict("only containers run deployed apps")
+    if inst.status not in DEPLOYABLE:
+        raise Conflict(f"the instance is {inst.status.value}: start it first")
+    busy = db.scalar(
+        select(Deployment).where(Deployment.instance_id == inst.id, Deployment.status.in_(ACTIVE))
+    )
+    if busy is not None:
+        raise Conflict(f"deployment {busy.id} is still in progress")
 
 
 def redeploy(
@@ -104,18 +170,35 @@ def redeploy(
     settings: Settings,
 ) -> Deployment:
     """A new version of the app for an instance the caller may change (Role.member)."""
-    if inst.type != InstanceType.container:
-        raise Conflict("only containers run deployed apps")
-    if inst.status not in DEPLOYABLE:
-        raise Conflict(f"the instance is {inst.status.value}: start it first")
-    busy = db.scalar(
-        select(Deployment).where(Deployment.instance_id == inst.id, Deployment.status.in_(ACTIVE))
-    )
-    if busy is not None:
-        raise Conflict(f"deployment {busy.id} is still in progress")
+    _check_redeployable(db, inst)
     plan = check_upload(data, settings)
     project = db.get(Project, inst.project_id)
-    return _new_deployment(db, user, inst, project, plan, data, filename)
+    return _new_deployment(
+        db, user, inst, project, plan, data, describe_source(filename, len(data))
+    )
+
+
+def redeploy_from_git(
+    db: Session, user: User, inst: Instance, *, url: str | None, settings: Settings
+) -> Deployment:
+    """Fetch the repository again (the link used last time, unless a new one is given)."""
+    _check_redeployable(db, inst)
+    if url:
+        source = github.parse_url(url)
+    else:
+        last = db.scalar(
+            select(Deployment)
+            .where(Deployment.instance_id == inst.id, Deployment.source_url.is_not(None))
+            .order_by(Deployment.created_at.desc())
+        )
+        if last is None:
+            raise Conflict("this instance was not deployed from GitHub: send a link")
+        source = github.parse_url(last.source_url or "")
+    data, plan = _fetch(source, settings)
+    project = db.get(Project, inst.project_id)
+    return _new_deployment(
+        db, user, inst, project, plan, data, _git_source(source, data), source.url
+    )
 
 
 def _new_deployment(
@@ -125,12 +208,14 @@ def _new_deployment(
     project: Project,
     plan: buildpack.Plan,
     data: bytes,
-    filename: str | None,
+    source: str,
+    source_url: str | None = None,
 ) -> Deployment:
     dep = Deployment(
         instance_id=inst.id,
         status=DeploymentStatus.pending,
-        source=describe_source(filename, len(data)),
+        source=source,
+        source_url=source_url,
         stack=plan.stack,
         stack_label=plan.label,
         log="",
@@ -235,6 +320,9 @@ def _start(
         CONTAINER_BUILDPACK,
         CONTAINER_ARCHIVE,
     ]
+    subdir = github.parse_url(dep.source_url).subdir if dep.source_url else ""
+    if subdir:  # an app in one folder of a GitHub repository
+        command += ["--subdir", subdir]
     dep.exec_id = driver.start_exec(*target, command, instance_service.EXEC_ENV)
     dep.status = DeploymentStatus.building
     dep.started_at = now

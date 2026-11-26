@@ -206,7 +206,8 @@ class DeploymentOut(BaseModel):
     id: str
     instance_id: str
     status: DeploymentStatus
-    source: str = Field(description="Tên và cỡ file zip đã tải lên")
+    source: str = Field(description="Tên và cỡ file zip, hoặc repo GitHub, đã triển khai")
+    source_url: str | None = Field(default=None, description="Link GitHub nếu lấy từ GitHub")
     stack: str | None = Field(description="static, node, node-static, python, php hoặc procfile")
     stack_label: str | None = Field(description="Công nghệ nhận ra, để hiện cho người dùng")
     message: str | None
@@ -223,6 +224,26 @@ class AppCreated(BaseModel):
     instance: InstanceOut
     operation: OperationOut
     deployment: DeploymentOut
+
+
+class GitAppIn(BaseModel):
+    name: str = Field(pattern=NAME_PATTERN, examples=["my-app"])
+    flavor: str = "s1.small"
+    url: str = Field(
+        max_length=300,
+        description=(
+            "Repo công khai: https://github.com/<chủ>/<repo>, có thể thêm /tree/<nhánh>/<thư mục>"
+        ),
+        examples=["https://github.com/octocat/Hello-World"],
+    )
+
+
+class GitDeployIn(BaseModel):
+    url: str | None = Field(
+        default=None,
+        max_length=300,
+        description="Bỏ trống để lấy bản mới nhất từ đúng link đã dùng lần trước",
+    )
 
 
 class FlavorOut(BaseModel):

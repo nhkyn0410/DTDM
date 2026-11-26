@@ -318,15 +318,20 @@ class IncusDriver:
         }
         if spec.user_data:
             config["cloud-init.user-data"] = spec.user_data
+        source: dict[str, Any] = {
+            "type": "image",
+            "alias": spec.image_alias,
+            "server": self.image_server,
+            "protocol": "simplestreams",
+        }
+        if spec.image_alias.startswith("local:"):
+            # Built on the cluster (infra/node/70-app-image.sh) and kept in the default project,
+            # whose images every tenant project shares (features.images=false).
+            source = {"type": "image", "alias": spec.image_alias.removeprefix("local:")}
         body = {
             "name": spec.name,
             "type": spec.type,
-            "source": {
-                "type": "image",
-                "alias": spec.image_alias,
-                "server": self.image_server,
-                "protocol": "simplestreams",
-            },
+            "source": source,
             "config": config,
             "devices": {
                 "root": {

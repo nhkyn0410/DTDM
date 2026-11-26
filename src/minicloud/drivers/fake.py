@@ -125,15 +125,20 @@ class FakeDriver:
             self.execs[exec_id] = (project_, name_, command, waits - 1)
             return None
         del self.execs[exec_id]
-        if any(part.endswith("minicloud-buildpack.py") for part in command):
-            return self._fake_buildpack(project_, name_, command[-1])
+        script = next((i for i, part in enumerate(command) if part.endswith("buildpack.py")), None)
+        if script is not None:  # <buildpack.py> <zip> [--subdir <folder>]
+            args = command[script + 1 :]
+            subdir = args[args.index("--subdir") + 1] if "--subdir" in args else ""
+            return self._fake_buildpack(project_, name_, args[0], subdir)
         return ExecResult(0, f"(fake) {command[-1]}\n", "")
 
-    def _fake_buildpack(self, project: str, name: str, archive_path: str) -> ExecResult:
+    def _fake_buildpack(
+        self, project: str, name: str, archive_path: str, subdir: str = ""
+    ) -> ExecResult:
         """Recognise the pushed zip as the real buildpack would, without installing anything."""
         plan = None
         try:
-            archive = buildpack.inspect_archive(self.files[(project, name, archive_path)])
+            archive = buildpack.inspect_archive(self.files[(project, name, archive_path)], subdir)
             plan = buildpack.detect(archive.names, archive.read_text)
             ok, message = self.buildpack_failure is None, self.buildpack_failure or "Đang chạy."
         except buildpack.UploadError as exc:

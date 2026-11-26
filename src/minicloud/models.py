@@ -244,6 +244,8 @@ class Deployment(Base):
         _enum(DeploymentStatus), default=DeploymentStatus.pending, index=True
     )
     source: Mapped[str] = mapped_column(String(200))  # file name and size, for the customer
+    # The GitHub link it came from, to fetch the newest version again; None for an upload.
+    source_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     stack: Mapped[str | None] = mapped_column(String(32), nullable=True)
     stack_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
     message: Mapped[str | None] = mapped_column(String(500), nullable=True)

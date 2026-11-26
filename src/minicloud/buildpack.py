@@ -111,8 +111,11 @@ class Archive:
             ) from None
 
 
-def inspect_archive(data: bytes) -> Archive:
-    """Check a zip without unpacking it and drop what a deployment never needs."""
+def inspect_archive(data: bytes, subdir: str = "") -> Archive:
+    """Check a zip without unpacking it and drop what a deployment never needs.
+
+    `subdir` keeps only one folder of a GitHub archive (an app inside a bigger repository).
+    """
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
         infos = archive.infolist()
@@ -144,13 +147,26 @@ def inspect_archive(data: bytes) -> Archive:
         raise UploadError("File zip không có file nào.")
     if total > MAX_UNPACKED_BYTES:
         raise UploadError(f"Giải nén ra hơn {MAX_UNPACKED_BYTES // 2**20} MB, quá giới hạn.")
-    for _ in range(3):  # "Download ZIP" on GitHub wraps everything in "<repo>-main/"
+    if subdir:
+        members = _unwrap(members, 1)  # GitHub puts everything in "<repo>-<ref>/"
+        prefix = subdir.strip("/") + "/"
+        members = {n[len(prefix) :]: i for n, i in members.items() if n.startswith(prefix)}
+        if not members:
+            raise UploadError(f"Repo không có thư mục {subdir} (hoặc thư mục đó trống).")
+    else:
+        members = _unwrap(members, 3)  # "Download ZIP" wraps it all in "<repo>-main/"
+    return Archive(archive, members)
+
+
+def _unwrap(members: dict[str, zipfile.ZipInfo], levels: int) -> dict[str, zipfile.ZipInfo]:
+    """Drop up to `levels` folders that hold everything else."""
+    for _ in range(levels):
         tops = {name.split("/", 1)[0] for name in members}
         if len(tops) != 1 or any("/" not in name for name in members):
             break
         cut = len(tops.pop()) + 1
         members = {name[cut:]: info for name, info in members.items()}
-    return Archive(archive, members)
+    return members
 
 
 # -- recognising the stack ------------------------------------------------------------------
@@ -789,14 +805,20 @@ def report(ok: bool, plan: Plan | None, message: str) -> None:
 
 
 def main(argv: list[str]) -> int:
-    archive_path = Path(argv[1]) if len(argv) > 1 else Path("/root/minicloud-app.zip")
+    args = list(argv[1:])
+    subdir = ""
+    if "--subdir" in args:  # minicloud-buildpack.py <zip> --subdir <folder of the repo>
+        at = args.index("--subdir")
+        subdir = args[at + 1] if at + 1 < len(args) else ""
+        del args[at : at + 2]
+    archive_path = Path(args[0]) if args else Path("/root/minicloud-app.zip")
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     LOG_FILE.write_text(
         f"minicloud deploy {time.strftime('%Y-%m-%d %H:%M:%S')}\n", encoding="utf-8"
     )
     plan: Plan | None = None
     try:
-        archive = inspect_archive(archive_path.read_bytes())
+        archive = inspect_archive(archive_path.read_bytes(), subdir)
         plan = detect(archive.names, archive.read_text)
         say(f"Nhận ra: {plan.label}")
         deployer = Deployer(plan)

@@ -57,3 +57,10 @@ class PayloadTooLarge(ApiError):
 class InvalidUpload(ApiError):
     status_code = 422
     code = "invalid_upload"
+
+
+class BadGateway(ApiError):
+    """A service the request depends on (GitHub) failed or could not be reached."""
+
+    status_code = 502
+    code = "upstream_error"

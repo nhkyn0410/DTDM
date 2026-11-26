@@ -58,6 +58,14 @@ sudo minicloud-admin make-admin <email-của-bạn>                  # sau khi �
 
 Muốn cập nhật code, `git pull` rồi chạy lại script 50; dữ liệu và cấu hình được giữ nguyên. Mỗi lần chạy, script dừng API, sao lưu database, nâng schema (Alembic), rồi bật lại API. Nó cũng cài timer sao lưu hằng ngày lúc 03:00 giờ Việt Nam.
 
+Không bắt buộc, nhưng nên làm: dựng ảnh có sẵn runtime cho ứng dụng triển khai từ zip hay GitHub. Mất vài phút, và chạy lại được khi muốn cập nhật gói. Sau khi bật, mỗi lần triển khai không phải tải nginx, Apache, PHP, Python và Node.js nữa.
+
+```bash
+sudo ./infra/node/70-app-image.sh
+echo MINICLOUD_APP_IMAGE=app-base | sudo tee -a /etc/minicloud/minicloud.env
+sudo systemctl restart minicloud-api
+```
+
 ## Sao lưu và khôi phục database
 
 ```bash

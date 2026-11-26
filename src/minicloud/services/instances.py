@@ -99,14 +99,16 @@ def create_instance(
     flavor_name: str,
     image_key: str,
     ssh_keys: list[str],
+    internal: bool = False,
 ) -> tuple[Instance, Operation]:
+    """`internal`: minicloud itself asks (an app's container), so hidden images are allowed."""
     check_access(db, user, project.org_id, Role.member, target_type="project", target_id=project.id)
     _require_credit(db.get(Organization, project.org_id))
     flavor = FLAVORS.get(flavor_name)
     if flavor is None:
         raise ApiError(f"unknown flavor {flavor_name}")
     image = IMAGES.get(image_key)
-    if image is None:
+    if image is None or not (image.public or internal):
         raise ApiError(f"unknown image {image_key}")
     if instance_type == InstanceType.vm and not image.supports_vm:
         raise ApiError(f"image {image_key} has no virtual-machine variant")

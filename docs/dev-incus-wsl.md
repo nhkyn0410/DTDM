@@ -98,6 +98,8 @@ Lệnh này làm hai việc:
 
 Task Scheduler có thể ghi Last Run Result của `minicloud-wsl` là `0x800710E0`. Đó không phải lỗi: lúc đăng nhập, tác vụ được kích hoạt lần nữa và bị bỏ qua vì WSL đã chạy từ lúc khởi động. Muốn biết tác vụ có đang giữ WSL không, chạy `Get-Process wsl`: phải có tiến trình với `SessionId` bằng 0.
 
+Ứng dụng triển khai từ zip hay GitHub chạy trên ảnh `minicloud-app-base`, có sẵn runtime. Ảnh được dựng trên staging ngày 26/11 bằng `sudo bash infra/node/70-app-image.sh`, và `/etc/minicloud/minicloud.env` có dòng `MINICLOUD_APP_IMAGE=app-base`. Chạy lại script để cập nhật gói; xoá dòng đó rồi `systemctl restart minicloud-api` để quay về ảnh Ubuntu thường.
+
 Khi chưa chạy lệnh trên, hoặc sau một lần `wsl --shutdown`, giữ WSL bằng:
 
 ```powershell

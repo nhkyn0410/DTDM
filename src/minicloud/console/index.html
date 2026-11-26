@@ -142,15 +142,23 @@
       </section>
 
       <h2>Triển khai ứng dụng</h2>
-      <p class="muted small">Tải lên file zip mã nguồn: minicloud tự nhận ra web tĩnh, Node.js, Python (Flask, FastAPI, Django) hay PHP, cài đặt trong một container mới rồi chạy ở địa chỉ HTTPS của container. <a href="huong-dan.html#ung-dung">Hướng dẫn và ứng dụng mẫu</a>.</p>
+      <p class="muted small">Tải lên file zip mã nguồn hoặc dán link repo GitHub công khai: minicloud tự nhận ra web tĩnh, Node.js, Python (Flask, FastAPI, Django) hay PHP, cài đặt trong một container mới rồi chạy ở địa chỉ HTTPS của container. <a href="huong-dan.html#ung-dung">Hướng dẫn và ứng dụng mẫu</a>.</p>
       <form id="app-form" class="card">
         <label>Tên ứng dụng
           <input name="name" required pattern="[a-z][a-z0-9\-]{0,30}[a-z0-9]" placeholder="my-app"
                  title="Chữ thường, số và dấu gạch ngang, bắt đầu bằng chữ, 2–32 ký tự">
         </label>
         <label>Cấu hình <select name="flavor" id="app-flavor"></select></label>
-        <label>File zip (tối đa 25 MB)
-          <input name="archive" type="file" accept=".zip,application/zip" required>
+        <div class="row" role="radiogroup" aria-label="Nguồn mã">
+          <label class="choice"><input type="radio" name="source" value="zip" checked> File zip</label>
+          <label class="choice"><input type="radio" name="source" value="github"> Link GitHub</label>
+        </div>
+        <label id="app-zip-field">File zip (tối đa 25 MB)
+          <input name="archive" type="file" accept=".zip,application/zip">
+        </label>
+        <label id="app-git-field" hidden>Link repo GitHub công khai
+          <input name="url" type="url" maxlength="300" placeholder="https://github.com/ban/du-an" autocomplete="off" spellcheck="false">
+          <span class="muted small">Thêm <code>/tree/&lt;nhánh&gt;/&lt;thư mục&gt;</code> để triển khai một nhánh hoặc một thư mục của repo.</span>
         </label>
         <button type="submit" class="primary">Triển khai</button>
       </form>

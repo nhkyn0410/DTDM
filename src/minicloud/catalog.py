@@ -17,9 +17,12 @@ class Flavor:
 @dataclass(frozen=True)
 class Image:
     key: str
-    alias: str  # alias on images.linuxcontainers.org; check with: incus image list images:<alias>
+    # Alias on images.linuxcontainers.org (check with: incus image list images:<alias>), or
+    # "local:<alias>" for an image built on the cluster itself.
+    alias: str
     title: str
     supports_vm: bool = True
+    public: bool = True  # False: only minicloud uses it, customers never see or pick it
 
 
 FLAVORS: dict[str, Flavor] = {
@@ -36,6 +39,15 @@ IMAGES: dict[str, Image] = {
     for i in (
         Image("ubuntu-24.04", "ubuntu/24.04/cloud", "Ubuntu 24.04 LTS"),
         Image("ubuntu-22.04", "ubuntu/22.04/cloud", "Ubuntu 22.04 LTS"),
+        # Ubuntu 24.04 with the runtimes the buildpack needs, for apps deployed from a zip or
+        # GitHub (MINICLOUD_APP_IMAGE=app-base, once infra/node/70-app-image.sh has built it).
+        Image(
+            "app-base",
+            "local:minicloud-app-base",
+            "Ubuntu 24.04 có sẵn runtime cho ứng dụng",
+            supports_vm=False,
+            public=False,
+        ),
     )
 }
 

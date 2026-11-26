@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     apps_enabled: bool = True
     app_max_zip_mib: int = 25
     app_deploy_timeout_seconds: int = 1200  # the buildpack is stopped after this
+    # Catalog key of the image apps run on. "app-base" (runtimes inside, built by
+    # infra/node/70-app-image.sh) makes deployments much faster; set it once the image exists.
+    app_image: str = "ubuntu-24.04"
 
     # Placement of new instances
     placement_policy: str = "spread"  # "spread" or "binpack"
@@ -102,6 +105,7 @@ class Settings(BaseSettings):
     rate_limit_signups_per_hour: int = 5
     rate_limit_auth_failures: int = 50  # wrong API keys per 10 minutes before the address waits
     rate_limit_execs: int = 120  # commands run in instances per user per 10 minutes
+    rate_limit_git_fetches: int = 20  # GitHub downloads per user per 10 minutes
 
     @property
     def pinned_nodes(self) -> frozenset[str]:

@@ -1,16 +1,20 @@
-"""Apps from a zip (PaaS): create a container from an upload, or send a new version to one."""
+"""Apps from a zip or a public GitHub repository (PaaS): create a container from the code, or
+send a new version to one."""
 
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
 
 from ..errors import PayloadTooLarge
-from ..models import Deployment, Role
+from ..models import Deployment, Role, User
+from ..ratelimit import TooManyRequests
 from ..schemas import (
     NAME_PATTERN,
     AppCreated,
     DeploymentDetailOut,
     DeploymentOut,
+    GitAppIn,
+    GitDeployIn,
     InstanceOut,
     OperationOut,
 )
@@ -105,6 +109,62 @@ def redeploy(
     """Triển khai phiên bản mới từ file zip vào một container; địa chỉ HTTPS giữ nguyên."""
     inst = instance_service.get_instance(db, user, instance_id, Role.member)
     return deploys.redeploy(db, user, inst, data=data, filename=filename, settings=settings)
+
+
+def _limit_github(request: Request, user: User) -> None:
+    """Each fetch makes laptop-1 download from GitHub: a few per user, not a stream."""
+    limiter = request.app.state.git_limiter
+    if limiter.exceeded(user.id):
+        raise TooManyRequests(
+            "too many GitHub fetches: wait a few minutes", limiter.retry_after(user.id)
+        )
+    limiter.hit(user.id)
+
+
+@router.post("/projects/{project_id}/apps/github", response_model=AppCreated, status_code=202)
+def create_app_from_github(
+    project_id: str,
+    body: GitAppIn,
+    request: Request,
+    user: CurrentUser,
+    db: DB,
+    settings: AppSettings,
+) -> AppCreated:
+    """Tạo container và triển khai ứng dụng từ một repo GitHub công khai.
+
+    minicloud tải repo (nhánh mặc định, hoặc nhánh trong link `…/tree/<nhánh>/<thư mục>`),
+    nhận ra công nghệ và triển khai như một file zip. Repo riêng tư chưa được hỗ trợ.
+    """
+    project = tenancy.get_project(db, user, project_id, Role.member)
+    _limit_github(request, user)
+    inst, op, dep = deploys.create_app_from_git(
+        db, user, project, name=body.name, flavor=body.flavor, url=body.url, settings=settings
+    )
+    return AppCreated(
+        instance=InstanceOut.model_validate(inst),
+        operation=OperationOut.model_validate(op),
+        deployment=DeploymentOut.model_validate(dep),
+    )
+
+
+@router.post(
+    "/instances/{instance_id}/deployments/github", response_model=DeploymentOut, status_code=202
+)
+def redeploy_from_github(
+    instance_id: str,
+    body: GitDeployIn,
+    request: Request,
+    user: CurrentUser,
+    db: DB,
+    settings: AppSettings,
+) -> Deployment:
+    """Lấy bản mới nhất từ GitHub và triển khai lại vào máy này; địa chỉ HTTPS giữ nguyên.
+
+    Bỏ trống `url` để dùng đúng link của lần triển khai từ GitHub gần nhất.
+    """
+    inst = instance_service.get_instance(db, user, instance_id, Role.member)
+    _limit_github(request, user)
+    return deploys.redeploy_from_git(db, user, inst, url=body.url, settings=settings)
 
 
 @router.get("/instances/{instance_id}/deployments", response_model=list[DeploymentDetailOut])

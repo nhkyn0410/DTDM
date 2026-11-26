@@ -1,6 +1,7 @@
 """The Incus driver against a mocked REST API: checks the requests we send, not Incus itself."""
 
 import json
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -106,6 +107,13 @@ def test_create_instance_sends_limits_and_waits_for_the_operation():
     wait = next(c for c in calls if c.url.path.endswith("/wait"))
     assert wait.url.params["project"] == "mc-1"
     assert (runtime.node, runtime.ip, runtime.status) == ("laptop-2", "10.1.2.3", "Running")
+
+
+def test_an_image_built_on_the_cluster_comes_from_the_local_store():
+    driver, calls = driver_with(create_routes(clustered=False))
+    driver.create_instance(replace(SPEC, image_alias="local:minicloud-app-base"))
+    body = json.loads(next(c for c in calls if c.method == "POST").content)
+    assert body["source"] == {"type": "image", "alias": "minicloud-app-base"}
 
 
 def test_a_standalone_server_gets_no_target():

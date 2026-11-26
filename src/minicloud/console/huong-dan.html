@@ -74,12 +74,17 @@ tail -n 20 /root/viec-dai.log</pre>
 git clone https://github.com/ten-ban/trang-cua-ban.git /root/site
 cp -r /root/site/* /var/www/html/</pre>
 
-    <h2 id="ung-dung">5. Triển khai ứng dụng từ file zip</h2>
-    <p>Không phải tự cài gì: tải lên file zip mã nguồn, minicloud tạo một container, nhận ra công nghệ, cài đặt và chạy ứng dụng ở địa chỉ HTTPS của container.</p>
+    <h2 id="ung-dung">5. Triển khai ứng dụng từ file zip hoặc GitHub</h2>
+    <p>Không phải tự cài gì: đưa mã nguồn lên, minicloud tạo một container, nhận ra công nghệ, cài đặt và chạy ứng dụng ở địa chỉ HTTPS của container.</p>
     <ol>
-      <li>Ở mục <strong>Triển khai ứng dụng</strong>, đặt tên, chọn cấu hình và file zip (tối đa 25 MB), rồi bấm <strong>Triển khai</strong>.</li>
+      <li>Ở mục <strong>Triển khai ứng dụng</strong>, đặt tên, chọn cấu hình, rồi chọn nguồn:
+        <ul>
+          <li><strong>File zip</strong> (tối đa 25 MB);</li>
+          <li><strong>Link GitHub</strong> của một repo công khai, ví dụ <code>https://github.com/ban/du-an</code>. Thêm <code>/tree/&lt;nhánh&gt;/&lt;thư mục&gt;</code> để lấy một nhánh khác, hoặc chỉ một thư mục khi repo chứa nhiều phần (ví dụ <code>…/tree/main/frontend</code>).</li>
+        </ul>
+        Bấm <strong>Triển khai</strong>.</li>
       <li>Khung <strong>Triển khai</strong> cho biết công nghệ nhận ra và hiện dần từng bước. Thường mất 1–2 phút, phần lớn là thời gian tải runtime và thư viện.</li>
-      <li>Sửa code xong thì nén lại và bấm <strong>Triển khai lại</strong> ở máy đó. Địa chỉ giữ nguyên. Trong lúc cài thư viện và build, bản cũ vẫn chạy; bước này lỗi thì bản cũ được giữ nguyên.</li>
+      <li>Sửa code xong: với repo GitHub, push lên rồi bấm <strong>Lấy bản mới từ GitHub</strong> ở máy đó; với file zip, nén lại rồi bấm <strong>Triển khai lại bằng zip</strong>. Địa chỉ giữ nguyên. Trong lúc cài thư viện và build, bản cũ vẫn chạy; bước này lỗi thì bản cũ được giữ nguyên.</li>
     </ol>
     <div class="table-wrap">
       <table class="usage">
@@ -97,6 +102,7 @@ cp -r /root/site/* /var/www/html/</pre>
     <p>Ứng dụng mẫu để thử ngay: <a href="samples/static-site.zip">web tĩnh</a>, <a href="samples/vite-site.zip">Vite</a>, <a href="samples/node-express.zip">Node.js Express</a>, <a href="samples/python-flask.zip">Flask</a>, <a href="samples/python-fastapi.zip">FastAPI</a>, <a href="samples/php-site.zip">PHP</a>.</p>
     <ul>
       <li>Ứng dụng cần nghe ở cổng ghi trong biến môi trường <code>PORT</code> (bằng 80). Nếu ứng dụng nghe ở cổng 3000, 8080, 8000, 5000 hoặc 4000, minicloud tự đặt nginx chuyển cổng 80 tới đó.</li>
+      <li>Chỉ nhận repo GitHub công khai (repo riêng tư chưa hỗ trợ), nén lại tối đa 25 MB; mỗi người tối đa 20 lần tải từ GitHub mỗi 10 phút.</li>
       <li>Zip tải bằng nút "Download ZIP" của GitHub dùng được ngay. Không cần cho <code>node_modules</code>, <code>.git</code> hay <code>venv</code> vào zip: minicloud bỏ qua và tự cài lại.</li>
       <li>Mỗi lần triển khai thay cả thư mục ứng dụng (<code>/srv/app</code>). Dữ liệu cần giữ (file người dùng tải lên, SQLite…) hãy ghi vào <code>/srv/data</code>, có sẵn trong biến <code>DATA_DIR</code>.</li>
       <li>Gặp lỗi thì bấm <strong>Xem log triển khai</strong>; log đầy đủ nằm trong máy, ở <code>/var/log/minicloud-deploy.log</code>.</li>

@@ -150,6 +150,21 @@ def test_other_tenants_cannot_deploy_into_an_instance(signup, run_worker):
     assert binh.get(f"/v1/projects/{an.project_id}/deployments").status_code == 404
 
 
+def test_apps_run_on_the_runtime_image_once_it_is_configured(signup, settings):
+    tenant = signup()
+    assert upload(tenant, STATIC).json()["instance"]["image"] == "ubuntu-24.04"  # by default
+    settings.app_image = "app-base"
+    assert upload(tenant, STATIC, name="web-2").json()["instance"]["image"] == "app-base"
+    settings.app_image = "no-such-image"  # a typo falls back instead of breaking every deploy
+    assert upload(tenant, STATIC, name="web-3").json()["instance"]["image"] == "ubuntu-24.04"
+
+
+def test_customers_neither_see_nor_pick_the_runtime_image(signup):
+    tenant = signup()
+    assert "app-base" not in [i["key"] for i in tenant.get("/v1/catalog/images").json()]
+    assert tenant.create_instance("box", image="app-base").status_code == 400
+
+
 def test_virtual_machines_and_a_switched_off_feature_take_no_apps(signup, run_worker, settings):
     tenant = signup()
     vm_id = tenant.create_instance("vm-1", type="virtual-machine").json()["instance"]["id"]
