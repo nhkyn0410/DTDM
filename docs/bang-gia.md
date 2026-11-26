@@ -14,7 +14,8 @@ Credit là đơn vị mô phỏng, không ai trả tiền thật. Cột "≈ đ�
 
 Quy tắc tính tiền:
 
-- **Theo giây:** máy chạy bao nhiêu giây trả bấy nhiêu, không làm tròn lên giờ. Worker ghi sổ mỗi phút.
+- **Theo giây:** máy chạy bao nhiêu giây trả bấy nhiêu, không làm tròn lên giờ. Worker ghi sổ mỗi phút. Tiền bắt đầu tính khi Incus báo máy đã chạy, không tính mấy giây tạo máy.
+- **Lúc hệ thống ngừng:** nếu worker im lặng quá 5 phút (`MINICLOUD_METERING_MAX_GAP_SECONDS`), tức control plane không chạy vì laptop tắt hoặc ngủ, thì máy đang chạy không bị tính tiền cho khoảng đó; audit log ghi `metering.gap` với số giây bỏ qua. Máy đang dừng vẫn trả tiền ổ đĩa, vì dữ liệu vẫn nằm đó. Ngừng ngắn hơn (khởi động lại, cập nhật code) vẫn tính như thường, vì container vẫn chạy.
 - **Máy ảo:** giá gấp 1,5 lần container, vì máy ảo giữ trọn RAM của nó và chạy kernel riêng.
 - **Máy đang dừng:** chỉ trả tiền ổ đĩa, 0,1 credit mỗi GB mỗi giờ.
 - **Dùng thử:** mỗi tổ chức mới nhận 500 credit (`MINICLOUD_TRIAL_CREDITS`), đủ chạy một container s1.small 25 giờ. Nhóm vận hành nạp thêm cho người dùng thử khi cần.

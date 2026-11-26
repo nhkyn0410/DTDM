@@ -238,6 +238,10 @@ class PricingOut(BaseModel):
     hours_per_month: int = 730
     billing_timezone: str = "+07:00"
     vms_available: bool = True
+    outage_free_after_minutes: float = Field(
+        description="Hệ thống ngừng lâu hơn chừng này (laptop tắt, ngủ) thì máy đang chạy "
+        "không bị tính tiền cho khoảng đó"
+    )
 
 
 class BillingOut(BaseModel):

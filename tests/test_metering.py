@@ -84,3 +84,79 @@ def test_a_negative_grant_drains_an_organization_for_the_demo(signup, run_worker
     assert result["suspended"] == 1
     assert tenant.get(f"/v1/instances/{inst_id}").json()["status"] == "stopping"
     assert balance(tenant)["suspended"] is True
+
+
+def used_seconds(tenant) -> int:
+    return sum(r["seconds"] for r in tenant.get(f"/v1/orgs/{tenant.org_id}/usage").json())
+
+
+def test_running_time_the_control_plane_did_not_see_is_not_billed(signup, run_worker, session):
+    """Staging, 25/11: the laptop was off 4.4 hours and the next tick billed all of it."""
+    import json
+
+    from sqlalchemy import select
+
+    from minicloud.models import AuditLog
+    from minicloud.services.metering import last_metered, skip_unobserved
+
+    tenant = signup()
+    t0 = utcnow()
+    inst_id = tenant.create_instance().json()["instance"]["id"]
+    run_worker(now=t0)
+    tick(session, t0 + timedelta(minutes=1))
+    back = t0 + timedelta(hours=4, minutes=1)
+    with session() as db:
+        last_seen = last_metered(db)
+        assert last_seen == t0 + timedelta(minutes=1)
+        assert skip_unobserved(db, last_seen, back, timedelta(minutes=5)) == 4 * 3600
+        [gap] = db.scalars(select(AuditLog).where(AuditLog.action == "metering.gap")).all()
+        assert gap.target_id == inst_id
+        assert json.loads(gap.detail)["unbilled_seconds"] == 4 * 3600
+    tick(session, back + timedelta(minutes=1))
+
+    assert used_seconds(tenant) == 120  # the minute before and the minute after
+    assert balance(tenant)["credits"] == pytest.approx(100 - 20 * 120 / 3600, abs=0.01)
+
+
+def test_the_part_before_the_silence_is_still_billed(signup, run_worker, session):
+    from minicloud.services.metering import skip_unobserved
+
+    tenant = signup()
+    t0 = utcnow()
+    tenant.create_instance()
+    run_worker(now=t0)
+    with session() as db:  # the worker last ran 30 s after this instance was last billed
+        last_seen = t0 + timedelta(seconds=30)
+        skipped = skip_unobserved(db, last_seen, t0 + timedelta(hours=3), timedelta(minutes=5))
+        assert skipped == 3 * 3600 - 30
+    assert used_seconds(tenant) == 30
+
+
+def test_a_short_silence_is_billed_as_usual(signup, run_worker, session):
+    """A restart takes seconds and the containers keep running, so the customer pays."""
+    from minicloud.services.metering import skip_unobserved
+
+    tenant = signup()
+    t0 = utcnow()
+    tenant.create_instance()
+    run_worker(now=t0)
+    with session() as db:
+        assert skip_unobserved(db, t0, t0 + timedelta(minutes=4), timedelta(minutes=5)) == 0
+    tick(session, t0 + timedelta(minutes=4))
+    assert used_seconds(tenant) == 240
+
+
+def test_a_stopped_instance_still_pays_for_its_disk_through_a_silence(signup, run_worker, session):
+    from minicloud.services.metering import skip_unobserved
+
+    tenant = signup()
+    t0 = utcnow()
+    inst_id = tenant.create_instance().json()["instance"]["id"]
+    run_worker(now=t0)
+    tenant.post(f"/v1/instances/{inst_id}/stop")
+    run_worker(now=t0)
+    later = t0 + timedelta(hours=10)
+    with session() as db:
+        assert skip_unobserved(db, t0, later, timedelta(minutes=5)) == 0
+    tick(session, later)  # 10 hours of a 10 GiB disk: 10 credits
+    assert balance(tenant)["credits"] == pytest.approx(90, abs=0.05)

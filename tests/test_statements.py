@@ -209,6 +209,7 @@ def test_the_public_pricing_rules(client):
         "hours_per_month": 730,
         "billing_timezone": "+07:00",
         "vms_available": True,
+        "outage_free_after_minutes": 5.0,
     }
 
 

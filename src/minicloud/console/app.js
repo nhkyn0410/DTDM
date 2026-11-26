@@ -140,7 +140,8 @@ async function loadPricing() {
   const small = flavors[0];
   const monthly = small.credits_per_hour_container * pricing.hours_per_month;
   const notes = [
-    "Giá tính bằng credit mỗi giờ, trừ theo từng giây máy chạy.",
+    "Giá tính bằng credit mỗi giờ, trừ theo từng giây máy chạy, tính từ lúc máy chạy xong.",
+    `Hệ thống ngừng quá ${fmt(pricing.outage_free_after_minutes)} phút (laptop tắt hoặc ngủ) thì máy đang chạy không bị tính tiền cho khoảng đó.`,
     `Máy ảo giá gấp ${fmt(pricing.vm_price_percent / 100)} lần container. Máy đang dừng chỉ trả tiền ổ đĩa: ${fmt(pricing.storage_credits_per_gib_hour)} credit mỗi GB mỗi giờ.`,
     `Đăng ký được ${fmt(pricing.trial_credits)} credit dùng thử. Một container ${small.name} chạy cả tháng hết ${fmt(monthly)} credit.`,
     `Quy đổi tham khảo: 1 credit ≈ ${fmt(pricing.vnd_per_credit)} đồng, để so với giá của nhà cung cấp thật (${small.name} cả tháng ≈ ${vnd(monthly * pricing.vnd_per_credit)}). Credit không phải tiền thật; không ai phải trả tiền.`,

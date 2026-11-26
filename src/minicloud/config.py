@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     run_worker: bool = True
     worker_interval_seconds: float = 2.0
     metering_interval_seconds: float = 60.0
+    # A silence longer than this means the control plane was down (laptop off or asleep): the
+    # running time it did not see is not billed (services/metering.skip_unobserved).
+    metering_max_gap_seconds: float = 300.0
 
     # Public URLs for customer apps (ADR-0005). Empty public_domain turns the feature off.
     public_domain: str = ""  # e.g. vexenhanh.id.vn -> https://<instance>.vexenhanh.id.vn

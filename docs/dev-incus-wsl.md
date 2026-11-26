@@ -129,6 +129,16 @@ Các lệnh hay dùng:
 | Tắt hết | `wsl --terminate Ubuntu` (chạy trên Windows) |
 | Gỡ tunnel thử | `cloudflared tunnel delete minicloud-wsl`, rồi xoá các bản ghi `cloud-api` và `*` trong dashboard Cloudflare |
 
+### Sự cố đã gặp
+
+- **WSL tự tắt làm staging sập.** WSL dừng distro khi không còn tiến trình `wsl.exe` nào, kéo theo API, Traefik, cloudflared và mọi container. Lần khởi động lại sau đó lại bật tất cả, nên nhìn từ ngoài, staging cứ chập chờn. Trên laptop chạy thật, `infra/wsl/setup-windows.ps1` đăng ký một tác vụ chạy `wsl.exe -d <distro> -u root --exec sleep infinity` mỗi khi Windows khởi động. Khi chưa chạy script đó, chạy `powershell -ExecutionPolicy Bypass -File infra\wsl\keep-wsl-alive.ps1`. Script này chạy ẩn đúng lệnh trên, và nó dừng khi Windows khởi động lại hoặc khi có ai chạy `wsl --shutdown`. Ngày 26/11, cửa sổ `wsl` giữ staging bị đóng khi khởi động lại WSL, và staging tắt bật liên tục trong khoảng 2 phút.
+- **`sync()` treo nên container không dừng được (26/11/2026).** Thí nghiệm mật độ chạy tới 200 container. Từ khoảng container thứ 130, lệnh `sync()` bắt đầu treo trong kernel của WSL: `/proc/<pid>/stack` dừng ở `fuse_sync_fs`, chờ một filesystem FUSE của chính WSL trả lời (filesystem này không có trong `/proc/mounts` của distro). Lúc khởi động lần đầu, container chạy `systemd-machine-id-setup --commit`, lệnh này gọi `sync()`. Vì vậy 67 container bị kẹt, và `incus delete -f` cũng treo theo. Cách gỡ:
+  1. Đặt `boot.autostart=false` cho các container kẹt.
+  2. Chạy `wsl --shutdown`.
+  3. Mở lại WSL rồi xoá các container đó.
+
+  Sau đó `sync` chạy bình thường trở lại. Đừng chạy thí nghiệm mật độ trên node đang phục vụ người dùng.
+
 ## Cụm ảo 3 node
 
 Trong lúc chờ 3 laptop, có thể dựng một cụm Incus 3 node ngay trong WSL. Cụm gồm 3 VM Ubuntu 24.04 tên `lab-1`, `lab-2`, `lab-3`, chạy đúng các script 00, 10, 20, 21, 30 của `infra/node` như trên laptop thật. Một control plane riêng ở cổng 8100 nối vào cụm này để làm smoke test.

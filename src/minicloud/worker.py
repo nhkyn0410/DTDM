@@ -112,6 +112,7 @@ def _create(
     project: Project,
     now: datetime,
 ) -> None:
+    began = time.monotonic()
     flavor = FLAVORS[inst.flavor]
     image = IMAGES[inst.image]
     try:
@@ -156,7 +157,9 @@ def _create(
     inst.node = runtime.node or node
     inst.ip = runtime.ip
     inst.status = InstanceStatus.running
-    inst.metered_until = now  # billing starts once the instance really runs
+    # Billing starts once the instance really runs, not while Incus builds it (whole seconds,
+    # in the customer's favour; `now` is the billing clock tests move).
+    inst.metered_until = now + timedelta(seconds=int(time.monotonic() - began))
     ingress.assign_hostname(inst, settings)
     if inst.group_id and inst.public_port is not None:
         # A group member joins the shared URL only once its app answers; before that Traefik
@@ -221,15 +224,28 @@ class BackgroundWorker:
         self._thread.join(timeout)
 
     def _loop(self) -> None:
+        last_seen: datetime | None = None  # when this worker (or the one before it) last ran
         try:
             with self._session_factory() as db:
                 reconciler.recover_interrupted_operations(db)
+                last_seen = metering.last_metered(db)
         except Exception:
             log.exception("could not recover interrupted operations")
+        max_gap = timedelta(seconds=self._settings.metering_max_gap_seconds)
         next_tick = 0.0
         while not self._stop.is_set():
             try:
                 with self._session_factory() as db:
+                    # First, before an operation settles a bill across the silence.
+                    now = utcnow()
+                    skipped = metering.skip_unobserved(db, last_seen, now, max_gap)
+                    if skipped:
+                        log.warning(
+                            "control plane silent from %s to %s: %d instance-seconds not billed",
+                            last_seen,
+                            now,
+                            skipped,
+                        )
                     process_pending_operations(db, self._driver, self._settings)
                     if time.monotonic() >= next_tick:
                         report = self._reconcile(db)
@@ -247,6 +263,8 @@ class BackgroundWorker:
                         next_tick = time.monotonic() + self._settings.metering_interval_seconds
             except Exception:  # keep the loop alive; the next iteration retries
                 log.exception("worker iteration failed")
+            # A long operation above is not a silence; a suspended laptop during the wait is.
+            last_seen = utcnow()
             self._stop.wait(self._settings.worker_interval_seconds)
 
     def _reconcile(self, db: Session) -> reconciler.ReconcileReport:

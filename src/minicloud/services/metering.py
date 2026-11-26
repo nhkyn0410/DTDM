@@ -62,6 +62,60 @@ def settle_instance(db: Session, inst: Instance, now: datetime) -> int:
     return amount
 
 
+def last_metered(db: Session) -> datetime | None:
+    """When a running instance was last billed: about when the worker last ran."""
+    return db.scalar(
+        select(func.max(Instance.metered_until)).where(Instance.status.in_(COMPUTE_STATUSES))
+    )
+
+
+def skip_unobserved(
+    db: Session, last_seen: datetime | None, now: datetime, max_gap: timedelta
+) -> int:
+    """Do not bill running time that the control plane did not see.
+
+    The worker bills every minute. A silence longer than `max_gap` means it was not running, and
+    on one laptop that means the containers were not either: on staging the laptop was shut down
+    for 4.4 hours and the next tick billed all of it. So from `last_seen` (when the worker was last
+    alive) to `now`, running instances are not charged; the audit log records each skipped span.
+    Stopped instances still pay for storage, because their disks kept the data.
+    Returns the seconds left unbilled, summed over instances.
+    """
+    if last_seen is None or now - last_seen <= max_gap:
+        return 0
+    running = db.scalars(
+        select(Instance).where(
+            Instance.status.in_(COMPUTE_STATUSES),
+            Instance.metered_until.is_not(None),
+            Instance.metered_until < now,
+        )
+    ).all()
+    skipped = 0
+    for inst in running:
+        if inst.metered_until < last_seen:
+            settle_instance(db, inst, last_seen)  # the worker saw this part: bill it
+        seconds = int((now - inst.metered_until).total_seconds())
+        if seconds <= 0:
+            continue
+        project = db.get(Project, inst.project_id)
+        audit.record(
+            db,
+            action="metering.gap",
+            target_type="instance",
+            target_id=inst.id,
+            org_id=project.org_id,
+            detail={
+                "unbilled_seconds": seconds,
+                "from": inst.metered_until.isoformat(),
+                "to": now.isoformat(),
+            },
+        )
+        inst.metered_until = now
+        skipped += seconds
+    db.commit()
+    return skipped
+
+
 def run_metering_tick(
     db: Session,
     now: datetime,

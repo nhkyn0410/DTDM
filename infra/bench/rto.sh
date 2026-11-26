@@ -32,6 +32,22 @@ probe() {  # mỗi dòng: thời điểm, mã HTTP của app khách
   done
 }
 
+wait_until() {  # wait_until <giây tối đa> <lệnh>: chờ lệnh thành công, quá hạn thì dừng thí nghiệm
+  local limit="$1" start
+  shift
+  start="$(date +%s)"
+  until "$@"; do
+    if (($(date +%s) - start > limit)); then
+      echo "Quá ${limit} giây mà vẫn chưa được: $*" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+}
+
+prober=""
+trap '[[ -n "$prober" ]] && kill "$prober" 2>/dev/null || true' EXIT
+
 if [[ "$(code -H "Host: ${APP_HOST}" "${TRAEFIK}/")" != 200 ]]; then
   echo "App ${APP_HOST} không trả 200 qua Traefik: chọn app khác" >&2
   exit 1
@@ -39,25 +55,28 @@ fi
 
 echo "round,health_s,api_s,app_ok,app_fail"
 for r in $(seq 1 "$ROUNDS"); do
-  until health_ok; do sleep 0.5; done
+  wait_until 120 health_ok
   sleep 15  # để worker chạy xong vòng đầu sau lần khởi động trước, và systemd không coi là khởi động dồn dập
   log="$(mktemp)"
   probe >"$log" &
   prober=$!
   sleep 2
   t0="$(now)"
-  systemctl kill -s KILL "$UNIT"
+  # SIGKILL vào tiến trình chính, như khi nó crash. ("systemctl kill" của systemd 255 báo lỗi
+  # "Failed to send signal SIGKILL to auxiliary processes" và dừng script.)
+  kill -KILL "$(systemctl show -p MainPID --value "$UNIT")"
   for _ in $(seq 1 30); do health_ok || break; sleep 0.1; done  # chờ tiến trình cũ chết hẳn
-  until health_ok; do sleep 0.1; done
+  wait_until 120 health_ok
   health_s="$(since "$t0")"
   api_s=""
   if [[ -n "${MINICLOUD_API_KEY:-}" ]]; then
-    until api_ok; do sleep 0.1; done
+    wait_until 120 api_ok
     api_s="$(since "$t0")"
   fi
   sleep 5
   kill "$prober" 2>/dev/null || true
   wait "$prober" 2>/dev/null || true
+  prober=""
   ok="$(awk -F, '$2 == 200' "$log" | wc -l)"
   fail="$(awk -F, '$2 != 200' "$log" | wc -l)"
   rm -f "$log"
