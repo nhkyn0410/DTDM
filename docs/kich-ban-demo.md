@@ -1,6 +1,6 @@
 # Kịch bản demo sáng thứ Bảy 28/11/2026
 
-Bảy màn theo mục 8 của đề cương, chạy trên staging (`https://cloud.vexenhanh.id.vn`). Mỗi màn ghi: ai làm, làm gì, cho người xem thấy gì. Màn nào hỏng giữa chừng thì chiếu video quay sẵn của màn đó và đi tiếp.
+Bảy màn theo mục 8 của đề cương, thêm màn 1b về triển khai từ file zip, chạy trên staging (`https://cloud.vexenhanh.id.vn`). Mỗi màn ghi: ai làm, làm gì, cho người xem thấy gì. Màn nào hỏng giữa chừng thì chiếu video quay sẵn của màn đó và đi tiếp.
 
 ## Chuẩn bị (tối thứ Sáu, kiểm tra lại lúc 7:00 sáng thứ Bảy)
 
@@ -12,6 +12,7 @@ Bảy màn theo mục 8 của đề cương, chạy trên staging (`https://clou
 - [ ] Nạp đủ credit cho A và B: `sudo minicloud-admin grant-credits <org_id> 2000`.
 - [ ] Tạo sẵn nhóm máy `web` (1–3 máy, app mẫu) cho màn 4, mở thử địa chỉ chung của nhóm một lần.
 - [ ] Máy trình chiếu có repo và `uv`, để chạy `infra/bench/load.py`.
+- [ ] Máy trình chiếu đã tải sẵn `node-express.zip`, `python-flask.zip` và `static-site.zip` từ mục 5 của trang hướng dẫn (màn 1b).
 - [ ] Điện thoại dùng 4G (tắt Wi-Fi) đã mở `https://cloud.vexenhanh.id.vn`.
 - [ ] Video quay sẵn từng màn nằm trong một thư mục trên máy trình chiếu.
 
@@ -23,6 +24,17 @@ Bảy màn theo mục 8 của đề cương, chạy trên staging (`https://clou
 4. Bấm vào địa chỉ HTTPS của máy: trang "Xin chào từ minicloud".
 
 Đạt khi: nhóm không phải làm gì giúp người dùng.
+
+## Màn 1b. Tải zip lên là chạy (PaaS)
+
+Cho thấy minicloud không chỉ cho thuê máy (IaaS) mà còn chạy hộ ứng dụng (PaaS), như Vercel hay Heroku.
+
+1. Trên console, mục **Triển khai ứng dụng**: đặt tên `shop`, chọn file `node-express.zip` (tải sẵn từ mục 5 của trang hướng dẫn), bấm **Triển khai**. Console báo ngay "Nhận ra: Node.js (Express, npm start)".
+2. Khung **Triển khai** hiện dần các bước: chờ máy khởi động, tải Node.js, `npm install`, khởi động. Trong lúc chờ, giải thích: code của khách chỉ được giải nén và chạy trong container của chính họ; control plane chỉ đọc danh sách file.
+3. Khi hiện "Đã chạy", bấm địa chỉ HTTPS của máy: trang "Xin chào từ minicloud" của Express. Trên staging (26/11), Express xong sau 40 giây.
+4. Bấm **Triển khai lại** ở máy `shop`, chọn `python-flask.zip`: cùng địa chỉ, giờ là Flask. Trong lúc cài, bản Node.js cũ vẫn trả lời. Trên staging, đổi FastAPI sang Flask mất 14 giây và trang không lúc nào ngừng trả lời.
+
+Đạt khi: không ai phải gõ lệnh. Nếu mạng ở chỗ demo chậm, dùng web tĩnh (`static-site.zip`), loại nhanh nhất, hoặc chiếu video.
 
 ## Màn 2. Truy cập từ mọi nơi
 

@@ -10,6 +10,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -73,6 +74,13 @@ class OperationAction(enum.StrEnum):
 class OperationStatus(enum.StrEnum):
     pending = "pending"
     running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+
+
+class DeploymentStatus(enum.StrEnum):
+    pending = "pending"  # waiting for its instance to run
+    building = "building"  # the buildpack is running inside the instance
     succeeded = "succeeded"
     failed = "failed"
 
@@ -220,6 +228,30 @@ class Operation(Base):
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     requested_by: Mapped[str | None] = mapped_column(String(32), nullable=True)  # None = platform
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Deployment(Base):
+    """An uploaded app being installed into a container by the buildpack (the PaaS layer)."""
+
+    __tablename__ = "deployments"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=lambda: new_id("dep"))
+    instance_id: Mapped[str] = mapped_column(ForeignKey("instances.id"), index=True)
+    status: Mapped[DeploymentStatus] = mapped_column(
+        _enum(DeploymentStatus), default=DeploymentStatus.pending, index=True
+    )
+    source: Mapped[str] = mapped_column(String(200))  # file name and size, for the customer
+    stack: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    stack_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    log: Mapped[str] = mapped_column(Text, default="")
+    exec_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The zip until it is copied into the instance; never loaded unless asked for.
+    archive: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    requested_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

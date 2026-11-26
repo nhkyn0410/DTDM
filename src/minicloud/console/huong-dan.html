@@ -21,6 +21,7 @@
       <a href="#tao-may">Tạo máy</a>
       <a href="#chay-lenh">Chạy lệnh</a>
       <a href="#web">Đưa web lên Internet</a>
+      <a href="#ung-dung">Triển khai từ file zip</a>
       <a href="#co-gian">Nhóm máy tự co giãn</a>
       <a href="#tien">Tiền và sao kê</a>
       <a href="#dien">Điện năng</a>
@@ -73,7 +74,36 @@ tail -n 20 /root/viec-dai.log</pre>
 git clone https://github.com/ten-ban/trang-cua-ban.git /root/site
 cp -r /root/site/* /var/www/html/</pre>
 
-    <h2 id="co-gian">5. Nhóm máy tự co giãn</h2>
+    <h2 id="ung-dung">5. Triển khai ứng dụng từ file zip</h2>
+    <p>Không phải tự cài gì: tải lên file zip mã nguồn, minicloud tạo một container, nhận ra công nghệ, cài đặt và chạy ứng dụng ở địa chỉ HTTPS của container.</p>
+    <ol>
+      <li>Ở mục <strong>Triển khai ứng dụng</strong>, đặt tên, chọn cấu hình và file zip (tối đa 25 MB), rồi bấm <strong>Triển khai</strong>.</li>
+      <li>Khung <strong>Triển khai</strong> cho biết công nghệ nhận ra và hiện dần từng bước. Thường mất 1–2 phút, phần lớn là thời gian tải runtime và thư viện.</li>
+      <li>Sửa code xong thì nén lại và bấm <strong>Triển khai lại</strong> ở máy đó. Địa chỉ giữ nguyên. Trong lúc cài thư viện và build, bản cũ vẫn chạy; bước này lỗi thì bản cũ được giữ nguyên.</li>
+    </ol>
+    <div class="table-wrap">
+      <table class="usage">
+        <thead><tr><th>Trong zip có</th><th>minicloud hiểu là</th><th>Cách chạy</th></tr></thead>
+        <tbody>
+          <tr><td><code>Procfile</code> có dòng <code>web: …</code></td><td>Lệnh bạn tự chỉ định</td><td>Chạy đúng lệnh đó</td></tr>
+          <tr><td><code>package.json</code> có script <code>start</code></td><td>Node.js</td><td><code>npm install</code>, <code>npm run build</code> nếu có, rồi <code>npm start</code></td></tr>
+          <tr><td><code>package.json</code> chỉ có <code>build</code></td><td>Web tĩnh dựng bằng React, Vite…</td><td><code>npm run build</code>, rồi nginx phục vụ <code>dist/</code>, <code>build/</code> hoặc <code>out/</code></td></tr>
+          <tr><td><code>requirements.txt</code> có Flask, FastAPI hoặc Django</td><td>Python</td><td>Cài thư viện, chạy bằng gunicorn hoặc uvicorn</td></tr>
+          <tr><td>File <code>.php</code></td><td>PHP</td><td>Apache với PHP</td></tr>
+          <tr><td><code>index.html</code></td><td>Web tĩnh</td><td>nginx</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Ứng dụng mẫu để thử ngay: <a href="samples/static-site.zip">web tĩnh</a>, <a href="samples/vite-site.zip">Vite</a>, <a href="samples/node-express.zip">Node.js Express</a>, <a href="samples/python-flask.zip">Flask</a>, <a href="samples/python-fastapi.zip">FastAPI</a>, <a href="samples/php-site.zip">PHP</a>.</p>
+    <ul>
+      <li>Ứng dụng cần nghe ở cổng ghi trong biến môi trường <code>PORT</code> (bằng 80). Nếu ứng dụng nghe ở cổng 3000, 8080, 8000, 5000 hoặc 4000, minicloud tự đặt nginx chuyển cổng 80 tới đó.</li>
+      <li>Zip tải bằng nút "Download ZIP" của GitHub dùng được ngay. Không cần cho <code>node_modules</code>, <code>.git</code> hay <code>venv</code> vào zip: minicloud bỏ qua và tự cài lại.</li>
+      <li>Mỗi lần triển khai thay cả thư mục ứng dụng (<code>/srv/app</code>). Dữ liệu cần giữ (file người dùng tải lên, SQLite…) hãy ghi vào <code>/srv/data</code>, có sẵn trong biến <code>DATA_DIR</code>.</li>
+      <li>Gặp lỗi thì bấm <strong>Xem log triển khai</strong>; log đầy đủ nằm trong máy, ở <code>/var/log/minicloud-deploy.log</code>.</li>
+      <li>Máy của ứng dụng là một container bình thường: tính tiền theo giây, dừng hay xoá như mọi máy khác.</li>
+    </ul>
+
+    <h2 id="co-gian">6. Nhóm máy tự co giãn</h2>
     <p>Nhóm máy là các container giống nhau sau một địa chỉ HTTPS chung; request được chia lần lượt cho các máy. Mỗi phút, CPU trung bình trên 70% thì nhóm thêm một máy, dưới 20% liên tục 3 phút thì bớt một máy, luôn trong khoảng số máy ít nhất và nhiều nhất bạn đặt.</p>
     <ol>
       <li>Mở <strong>Tạo nhóm máy</strong>, đặt tên, số máy ít nhất và nhiều nhất.</li>
@@ -82,7 +112,7 @@ cp -r /root/site/* /var/www/html/</pre>
     </ol>
     <p>Mỗi máy của nhóm cũng tính tiền như một máy thường. Nhóm không vượt quota của project; xoá nhóm thì mọi máy của nhóm bị xoá theo.</p>
 
-    <h2 id="tien">6. Tiền và sao kê</h2>
+    <h2 id="tien">7. Tiền và sao kê</h2>
     <ul>
       <li>Giá tính theo từng giây máy chạy; xem <a href="./#bang-gia">bảng giá</a> ở trang đăng ký. Máy đang dừng chỉ trả tiền ổ đĩa, nên hãy <strong>dừng máy khi không dùng</strong>.</li>
       <li><strong>Tháng này (tạm tính)</strong> tăng theo thời gian thực. <strong>Còn đủ dùng</strong> cho biết với mức tiêu hiện tại, credit còn đủ bao lâu.</li>
@@ -91,18 +121,18 @@ cp -r /root/site/* /var/www/html/</pre>
       <li>Hết credit thì mọi máy bị dừng. Nhắn nhóm vận hành để được nạp thêm, rồi tự bật lại máy.</li>
     </ul>
 
-    <h2 id="dien">7. Điện năng (Green cloud)</h2>
+    <h2 id="dien">8. Điện năng (Green cloud)</h2>
     <p>Thẻ <strong>Điện năng</strong> cho biết máy của bạn đang dùng khoảng bao nhiêu W điện của laptop, và trong tháng đã dùng bao nhiêu Wh, tương đương bao nhiêu gam CO₂. Số này là ước tính: điện lúc rảnh của laptop chia theo số vCPU, phần còn lại chia theo thời gian CPU mỗi máy thật sự dùng.</p>
     <p>Lúc vắng khách, nhóm gom máy về ít laptop hơn để laptop còn lại được ngủ. Khi đó máy của bạn có thể được chuyển sang laptop khác và gián đoạn từ vài giây tới vài phút.</p>
 
-    <h2 id="api">8. API và tự động hoá</h2>
+    <h2 id="api">9. API và tự động hoá</h2>
     <p>Mọi việc trên bảng điều khiển đều làm được qua REST API. Tài liệu và nút thử nằm ở <a href="/docs">/docs</a>; bấm <strong>Authorize</strong> rồi dán API key. Ví dụ với <code>curl</code>:</p>
     <pre>KEY=mc_...   # API key của bạn
 curl -H "Authorization: Bearer $KEY" https://cloud-api.vexenhanh.id.vn/v1/me
 curl -H "Authorization: Bearer $KEY" https://cloud-api.vexenhanh.id.vn/v1/orgs</pre>
     <p>Mỗi script nên dùng một key riêng, tạo ở mục <strong>API key</strong>. Key bị lộ thì thu hồi ngay ở đó.</p>
 
-    <h2 id="luu-y">9. Lưu ý</h2>
+    <h2 id="luu-y">10. Lưu ý</h2>
     <ul>
       <li>Đây là môi trường thử nghiệm: nhóm không sao lưu dữ liệu trong máy của bạn, nên hãy tự giữ bản sao những gì quan trọng.</li>
       <li>Mỗi máy tối đa 20 Mbit/s mỗi chiều. Cổng 25 (gửi thư trực tiếp) bị chặn; gửi thư thì dùng dịch vụ có cổng 587.</li>

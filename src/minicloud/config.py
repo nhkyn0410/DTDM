@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     allow_vms: bool = True
     # A new autoscaling member joins its group's URL once its app answers, waiting up to this.
     group_ready_timeout_seconds: float = 45.0
+    # Apps uploaded as a zip and installed by the buildpack (services/deploys.py).
+    apps_enabled: bool = True
+    app_max_zip_mib: int = 25
+    app_deploy_timeout_seconds: int = 1200  # the buildpack is stopped after this
 
     # Placement of new instances
     placement_policy: str = "spread"  # "spread" or "binpack"

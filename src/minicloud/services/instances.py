@@ -28,6 +28,15 @@ from . import metering
 from .tenancy import check_access
 
 ACTIVE_OPERATION = (OperationStatus.pending, OperationStatus.running)
+# Environment of commands run inside an instance (console commands, the app buildpack).
+EXEC_ENV = {
+    "HOME": "/root",
+    "USER": "root",
+    "LANG": "C.UTF-8",
+    "TERM": "dumb",
+    "DEBIAN_FRONTEND": "noninteractive",  # apt-get never stops to ask
+    "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+}
 
 ALLOWED_FROM = {
     OperationAction.start: {InstanceStatus.stopped, InstanceStatus.error},

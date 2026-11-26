@@ -25,12 +25,19 @@ const ERROR_TEXT = {
   not_found: "Không tìm thấy",
   rate_limited: "Thử quá nhiều lần, hãy chờ một lúc rồi thử lại",
   invalid_month: "Tháng không hợp lệ",
+  too_large: "File quá lớn",
+  invalid_upload: "Chưa triển khai được file này",
 };
+const DEPLOY_TEXT = { pending: "Chờ máy chạy", building: "Đang cài đặt", succeeded: "Đã chạy", failed: "Lỗi" };
+const DEPLOY_BADGE = { succeeded: "running", failed: "error" };
+const DEPLOYING = new Set(["pending", "building"]);
+const ZIP_LIMIT_MIB = 25;
 
 const $ = (id) => document.getElementById(id);
 const state = {
   org: null, project: null, timer: null, meter: null, meterTimer: null, pricing: null, greenAt: 0,
   term: null, admin: false, providerAt: 0,
+  deploys: {}, deployLog: null, redeployTarget: null, // apps from a zip, by instance id
 };
 
 function el(tag, attrs = {}, ...children) {
@@ -56,11 +63,12 @@ async function api(method, path, body) {
   const headers = { Accept: "application/json" };
   const key = localStorage.getItem(KEY_STORAGE);
   if (key) headers.Authorization = `Bearer ${key}`;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const raw = body instanceof Blob; // a zip goes as it is, everything else as JSON
+  if (body !== undefined) headers["Content-Type"] = raw ? "application/zip" : "application/json";
   const resp = await fetch(path, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined || raw ? body : JSON.stringify(body),
   });
   let data = null;
   try {
@@ -114,6 +122,9 @@ function logout(clear = true) {
   state.term = null;
   $("terminal").hidden = true;
   $("term-output").replaceChildren();
+  state.deploys = {};
+  state.deployLog = null;
+  $("deploy-log").hidden = true;
   $("who").textContent = "";
   if (clear) clearBanner();
   show("auth");
@@ -297,6 +308,7 @@ async function loadCatalog() {
     const label = `${f.name} · ${f.vcpus} vCPU · ${f.memory_mib / 1024} GB · ${fmt(f.credits_per_hour_container)} credit/giờ`;
     $("flavor").append(el("option", { value: f.name }, label));
     $("group-flavor").append(el("option", { value: f.name }, label));
+    $("app-flavor").append(el("option", { value: f.name }, label));
   }
   for (const image of images) $("image").append(el("option", { value: image.key }, image.title));
   if (state.pricing && state.pricing.vms_available === false) {
@@ -308,12 +320,15 @@ async function loadCatalog() {
 
 async function refresh() {
   clearTimeout(state.timer);
-  const [instances, billing, usage] = await Promise.all([
+  const [instances, billing, usage, deployments] = await Promise.all([
     api("GET", `/v1/projects/${state.project.id}/instances`),
     api("GET", `/v1/orgs/${state.org.id}/billing`),
     api("GET", `/v1/orgs/${state.org.id}/usage?limit=20`),
+    api("GET", `/v1/projects/${state.project.id}/deployments`),
   ]);
+  state.deploys = Object.fromEntries(deployments.map((d) => [d.instance_id, d]));
   renderInstances(instances);
+  if (state.deployLog) await refreshDeployLog();
   await refreshGroups();
   state.running = instances.some((i) => i.status === "running");
   renderBilling(billing);
@@ -326,7 +341,8 @@ async function refresh() {
   await refreshGreen();
   if (state.admin) await refreshProvider();
   const busy = instances.some((i) => TRANSITIONAL.has(i.status));
-  state.timer = setTimeout(() => refresh().catch(showError), busy ? 2000 : 15000);
+  const deploying = deployments.some((d) => DEPLOYING.has(d.status));
+  state.timer = setTimeout(() => refresh().catch(showError), busy ? 2000 : deploying ? 4000 : 15000);
 }
 
 function actionButton(text, handler, cls = "") {
@@ -373,6 +389,13 @@ function renderInstances(list) {
     if (inst.status === "stopped" || inst.status === "error") {
       actions.append(actionButton("Bật", () => act(inst, "start")));
     }
+    const deployment = state.deploys[inst.id];
+    if (deployment) {
+      actions.append(actionButton("Xem log triển khai", () => openDeployLog(inst)));
+      if (inst.status === "running" && !DEPLOYING.has(deployment.status)) {
+        actions.append(actionButton("Triển khai lại", () => chooseRedeploy(inst)));
+      }
+    }
     if (["running", "stopped", "error"].includes(inst.status)) {
       actions.append(actionButton("Xoá", () => remove(inst), "danger"));
     }
@@ -387,11 +410,16 @@ function renderInstances(list) {
       ? el("a", { class: "url", href: url, target: "_blank", rel: "noopener noreferrer" },
         url.slice("https://".length))
       : null;
+    const app = deployment
+      ? el("div", { class: "meta" }, `Ứng dụng: ${deployment.stack_label || deployment.stack || "?"} `,
+        el("span", { class: `badge ${DEPLOY_BADGE[deployment.status] || ""}` },
+          DEPLOY_TEXT[deployment.status] || deployment.status))
+      : null;
     ul.append(el("li", { class: "instance" },
       el("div", { class: "head" },
         el("strong", {}, inst.name),
         el("span", { class: `badge ${inst.status}` }, STATUS_TEXT[inst.status] || inst.status)),
-      meta, link, actions));
+      meta, app, link, actions));
   }
 }
 
@@ -473,6 +501,47 @@ async function runCommand(command) {
     term.busy = false;
     submit.disabled = false;
   }
+}
+
+function checkZip(file) {
+  if (!file) throw new Error("Hãy chọn file zip trước.");
+  if (!/\.zip$/i.test(file.name)) throw new Error("Hãy chọn một file .zip.");
+  if (file.size > ZIP_LIMIT_MIB * 1024 * 1024) {
+    throw new Error(`File lớn hơn ${ZIP_LIMIT_MIB} MB: bỏ node_modules, .git, venv rồi nén lại.`);
+  }
+}
+
+async function openDeployLog(inst) {
+  state.deployLog = inst;
+  $("deploy-target").textContent = inst.name;
+  $("deploy-log").hidden = false;
+  $("deploy-log").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  await refreshDeployLog();
+}
+
+async function refreshDeployLog() {
+  const inst = state.deployLog;
+  if (!inst) return;
+  const [latest] = await api("GET", `/v1/instances/${inst.id}/deployments`);
+  if (state.deployLog !== inst) return; // closed or switched while waiting
+  if (!latest) {
+    $("deploy-summary").textContent = "Máy này chưa có lần triển khai nào.";
+    $("deploy-output").textContent = "";
+    return;
+  }
+  const done = latest.finished_at ? ` · xong lúc ${shortWhen(latest.finished_at, true)}` : "";
+  $("deploy-summary").replaceChildren(
+    el("span", { class: `badge ${DEPLOY_BADGE[latest.status] || ""}` }, DEPLOY_TEXT[latest.status] || latest.status),
+    ` ${latest.stack_label || ""} · ${latest.source}${done}`,
+    latest.message ? el("p", { class: latest.status === "failed" ? "error-text" : "muted" }, latest.message) : null);
+  const waiting = { pending: "Đang chờ máy chạy xong…", building: "Đang cài đặt… thường mất 1–2 phút." };
+  $("deploy-output").textContent = latest.log || waiting[latest.status] || "";
+}
+
+function chooseRedeploy(inst) {
+  state.redeployTarget = inst;
+  $("redeploy-file").value = "";
+  $("redeploy-file").click(); // the change handler below sends the chosen zip
 }
 
 const statTile = (label, value, unit) => el("div", { class: "stat" },
@@ -888,6 +957,51 @@ $("group-form").addEventListener("submit", async (event) => {
 
 $("term-close").addEventListener("click", () => {
   $("terminal").hidden = true;
+});
+
+$("app-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  clearBanner();
+  const formNode = event.currentTarget;
+  const name = String(formNode.elements.name.value || "").trim();
+  const file = formNode.elements.archive.files[0];
+  const submit = formNode.querySelector("button[type=submit]");
+  submit.disabled = true;
+  try {
+    checkZip(file);
+    const query = new URLSearchParams({ name, flavor: formNode.elements.flavor.value, filename: file.name });
+    const created = await api("POST", `/v1/projects/${state.project.id}/apps?${query}`, file);
+    formNode.reset();
+    banner(`Nhận ra: ${created.deployment.stack_label}. Đang tạo máy ${name} rồi cài đặt, thường mất 1–2 phút.`, "info");
+    await refresh();
+    await openDeployLog(created.instance);
+  } catch (err) {
+    showError(err);
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+$("redeploy-file").addEventListener("change", async (event) => {
+  const file = event.currentTarget.files[0];
+  const inst = state.redeployTarget;
+  if (!file || !inst) return;
+  clearBanner();
+  try {
+    checkZip(file);
+    const query = new URLSearchParams({ filename: file.name });
+    const dep = await api("POST", `/v1/instances/${inst.id}/deployments?${query}`, file);
+    banner(`Nhận ra: ${dep.stack_label}. Đang triển khai ${file.name} vào ${inst.name}; địa chỉ giữ nguyên.`, "info");
+    await refresh();
+    await openDeployLog(inst);
+  } catch (err) {
+    showError(err);
+  }
+});
+
+$("deploy-close").addEventListener("click", () => {
+  $("deploy-log").hidden = true;
+  state.deployLog = null;
 });
 
 $("statement-month").addEventListener("change", () => refreshStatement().catch(showError));

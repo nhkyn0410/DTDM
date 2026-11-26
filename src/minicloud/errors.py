@@ -47,3 +47,13 @@ class InvalidMonth(ApiError):
 class FeatureUnavailable(ApiError):
     status_code = 409
     code = "unavailable"
+
+
+class PayloadTooLarge(ApiError):
+    status_code = 413
+    code = "too_large"
+
+
+class InvalidUpload(ApiError):
+    status_code = 422
+    code = "invalid_upload"

@@ -138,6 +138,42 @@ Mỗi lần đổi số máy được ghi audit `group.scale`, kèm số máy tr
 
 App mẫu để thử (`console/demo-app.sh`): mỗi request tốn khoảng 0,1 giây CPU và trang cho biết máy nào trả lời. Bắn tải bằng `infra/bench/load.py` (hoặc k6) để thấy request được chia sang máy mới.
 
+## Triển khai ứng dụng từ file zip (lớp PaaS)
+
+Khách gửi file zip mã nguồn (`POST /v1/projects/{id}/apps`, body `application/zip`, tối đa 25 MB). minicloud tạo một container như mọi máy khác rồi cài ứng dụng vào đó, nên tính tiền, quota, địa chỉ HTTPS, điện năng và bảng Nhà cung cấp đều dùng lại.
+
+1. **Kiểm tra ngay khi nhận:** API đọc danh sách file trong bộ nhớ, không giải nén trên máy chủ, và từ chối zip hỏng hoặc nguy hiểm (mục 22 của [threat model](threat-model.md)). Cùng lúc, `buildpack.detect` nhận ra công nghệ từ tên file và vài file nhỏ (`package.json`, `requirements.txt`, `Procfile`). Không nhận ra thì trả 422 ngay, trước khi tạo hay tính tiền gì.
+2. **Ghi một bản triển khai:** bảng `deployments`, trạng thái `pending`, giữ tạm file zip.
+3. **Đẩy vào container:** khi container chạy, worker đẩy `buildpack.py` và file zip vào container qua API file của Incus, rồi chạy `python3 minicloud-buildpack.py minicloud-app.zip` (tối đa 20 phút). File zip được xoá khỏi database ngay sau đó; trạng thái chuyển sang `building`.
+4. **Buildpack chạy trong container, bằng quyền root của chính container đó:** giải nén vào `/srv/app.new` (có giới hạn dung lượng thật), cài runtime (Node.js tải bản chính thức từ nodejs.org; Python dùng venv; nginx, Apache và PHP cài bằng apt), cài thư viện, build. Sau đó đổi thư mục sang `/srv/app` và khởi động: nginx cho web tĩnh, Apache cho PHP, dịch vụ systemd `minicloud-app` cho Node.js và Python, với `PORT=80`. Cuối cùng chờ cổng 80 trả lời. Ứng dụng nghe ở cổng khác (3000, 8080…) thì đặt nginx chuyển cổng 80 tới đó.
+5. **Lấy kết quả:** mỗi vòng worker (2 giây) hỏi Incus lệnh đã xong chưa, không chờ, nên việc của khách khác không bị giữ lại. Dòng cuối buildpack in ra là `MINICLOUD-RESULT {json}`; worker ghi trạng thái, công nghệ, thông báo và các bước vào bản triển khai, rồi ghi audit `app.deployed` hoặc `app.deploy_failed`.
+
+| Trong zip có | Nhận là | Cách chạy |
+| --- | --- | --- |
+| `Procfile` có `web:` | Lệnh khách chỉ định | Chạy đúng lệnh đó |
+| `package.json` có `start` | Node.js | `npm ci` hoặc `npm install`, `npm run build` nếu có, `npm start` |
+| `requirements.txt`, `pyproject.toml` hoặc `manage.py` | Python | venv và pip; Django, FastAPI, Flask chạy bằng gunicorn hoặc uvicorn, tìm biến `app = Flask(...)` trong code |
+| `package.json` chỉ có `build` | Web tĩnh dựng bằng JS | Build rồi nginx phục vụ `dist/`, `build/` hoặc `out/` |
+| File `.php` | PHP | Apache, `composer install` nếu có `composer.json` |
+| `index.html` (ở gốc hoặc `public/`, `dist/`…) | Web tĩnh | nginx |
+
+Triển khai lại (`POST /v1/instances/{id}/deployments`) chạy cùng các bước trên trong cùng container, nên địa chỉ giữ nguyên. Trong lúc cài thư viện và build, bản cũ vẫn phục vụ. Mỗi máy chỉ có một bản triển khai đang chạy tại một thời điểm.
+
+Thử trên staging ngày 26/11 với 6 ứng dụng mẫu, tính từ lúc gửi zip tới lúc trang công khai trả lời:
+
+| Ứng dụng | Thời gian |
+| --- | --- |
+| Express (Node.js) | 40 giây (51 giây trước khi sửa DNS ngược) |
+| FastAPI | 61 giây |
+| Web tĩnh | 67 giây |
+| Flask | 73 giây |
+| Vite (build rồi phục vụ file tĩnh) | 81 giây |
+| PHP | 130 giây |
+
+Web tĩnh, Flask và PHP chạy cùng lúc 4 bản triển khai. Phần lớn thời gian là tải gói (apt, Node.js, npm, pip). Triển khai lại FastAPI thành Flask trên cùng máy mất 14 giây, và trong lúc đổi, trang không lúc nào ngừng trả lời.
+
+Giới hạn hiện tại: không có Dockerfile, database đi kèm, biến môi trường đặt từ giao diện, tên miền riêng, hay tự triển khai khi `git push`. Ứng dụng mẫu nằm trong `examples/apps` và được nén sẵn vào `console/samples/` (`uv run python examples/apps/make_zips.py`).
+
 ## Cô lập giữa các tenant
 
 | Lớp | Đã có | Còn thiếu |

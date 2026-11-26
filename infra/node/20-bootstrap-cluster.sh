@@ -43,6 +43,11 @@ networks:
     ipv4.address: auto
     ipv4.nat: "true"
     ipv6.address: none
+    # Reverse DNS answered by dnsmasq itself (container names) or refused at once: forwarded
+    # upstream, a PTR for a public IP took 10 s and stalled npm (docs/dev-incus-wsl.md).
+    raw.dnsmasq: |-
+      local=/in-addr.arpa/
+      local=/ip6.arpa/
 storage_pools:
 - name: local
   driver: ${POOL_DRIVER}

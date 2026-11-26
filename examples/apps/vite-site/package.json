@@ -1,0 +1,11 @@
+{
+  "name": "minicloud-vite-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}

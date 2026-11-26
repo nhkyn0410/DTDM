@@ -131,6 +131,31 @@
         <p class="muted small">Lệnh chạy bằng bash với quyền root và không có bàn phím: lệnh nào cần hỏi có/không thì thêm <code>-y</code>. Mỗi lệnh chạy tối đa 10 phút; đầu ra giữ tối đa 64 KB.</p>
       </section>
 
+      <section id="deploy-log" class="card terminal" hidden>
+        <div class="head">
+          <strong>Triển khai <span id="deploy-target"></span></strong>
+          <button id="deploy-close" type="button" class="link">Đóng</button>
+        </div>
+        <div id="deploy-summary" class="small"></div>
+        <pre id="deploy-output" class="term" aria-live="polite"></pre>
+        <p class="muted small">Các bước chính hiện dần ở đây trong lúc cài. Log đầy đủ nằm trong máy, ở <code>/var/log/minicloud-deploy.log</code>: xem bằng nút Chạy lệnh.</p>
+      </section>
+
+      <h2>Triển khai ứng dụng</h2>
+      <p class="muted small">Tải lên file zip mã nguồn: minicloud tự nhận ra web tĩnh, Node.js, Python (Flask, FastAPI, Django) hay PHP, cài đặt trong một container mới rồi chạy ở địa chỉ HTTPS của container. <a href="huong-dan.html#ung-dung">Hướng dẫn và ứng dụng mẫu</a>.</p>
+      <form id="app-form" class="card">
+        <label>Tên ứng dụng
+          <input name="name" required pattern="[a-z][a-z0-9\-]{0,30}[a-z0-9]" placeholder="my-app"
+                 title="Chữ thường, số và dấu gạch ngang, bắt đầu bằng chữ, 2–32 ký tự">
+        </label>
+        <label>Cấu hình <select name="flavor" id="app-flavor"></select></label>
+        <label>File zip (tối đa 25 MB)
+          <input name="archive" type="file" accept=".zip,application/zip" required>
+        </label>
+        <button type="submit" class="primary">Triển khai</button>
+      </form>
+      <input id="redeploy-file" type="file" accept=".zip,application/zip" hidden>
+
       <h2>Nhóm máy tự co giãn</h2>
       <p class="muted small">Các container giống nhau sau một địa chỉ HTTPS chung. Mỗi phút, CPU trung bình trên 70% thì thêm một máy; dưới 20% liên tục 3 phút thì bớt một máy.</p>
       <ul id="groups" class="instances"></ul>

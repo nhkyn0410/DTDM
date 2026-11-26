@@ -26,7 +26,7 @@ from .models import (
     utcnow,
 )
 from .scheduler import NoCapacityError, NodeCapacity, PlacementPolicy, choose_node
-from .services import green, groups, metering
+from .services import deploys, green, groups, metering
 from .services.instances import build_user_data, current_allocations
 
 log = logging.getLogger("minicloud.worker")
@@ -247,6 +247,8 @@ class BackgroundWorker:
                             skipped,
                         )
                     process_pending_operations(db, self._driver, self._settings)
+                    # Apps from a zip: start the buildpack in new containers, collect results.
+                    deploys.advance(db, self._driver, self._settings)
                     if time.monotonic() >= next_tick:
                         report = self._reconcile(db)
                         power = util = None  # Incus did not answer: keep the last figures

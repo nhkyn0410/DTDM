@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import minicloud
@@ -54,3 +55,13 @@ def test_the_help_and_terms_pages_are_served(client):
         assert "content-security-policy" in response.headers
     index = client.get("/console/").text
     assert 'href="huong-dan.html"' in index and 'href="dieu-khoan.html"' in index
+
+
+def test_the_sample_apps_linked_from_the_guide_are_served(client):
+    guide = client.get("/console/huong-dan.html").text
+    samples = re.findall(r'href="(samples/[\w-]+\.zip)"', guide)
+    assert len(samples) == 6
+    for sample in samples:
+        response = client.get(f"/console/{sample}")
+        assert response.status_code == 200, sample
+        assert response.content.startswith(b"PK"), sample  # a zip

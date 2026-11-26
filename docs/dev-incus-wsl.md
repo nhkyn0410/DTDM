@@ -24,6 +24,10 @@ networks:
     ipv4.address: auto
     ipv4.nat: "true"
     ipv6.address: none
+    # Truy vấn DNS ngược do dnsmasq tự trả lời, không chuyển lên trên (xem "Sự cố đã gặp")
+    raw.dnsmasq: |-
+      local=/in-addr.arpa/
+      local=/ip6.arpa/
 storage_pools:
 - name: local
   driver: dir
@@ -153,6 +157,13 @@ Các lệnh hay dùng:
   3. Mở lại WSL rồi xoá các container đó.
 
   Sau đó `sync` chạy bình thường trở lại. Đừng chạy thí nghiệm mật độ trên node đang phục vụ người dùng.
+- **`npm install` mất 5–8 phút trong container (26/11/2026).** Trong container trên staging, tra DNS ngược (PTR) cho IP công khai không ai trả lời: mỗi lần mất 10 giây (`getent hosts 104.16.10.34`). npm gọi `process.report.getReport()` để biết máy dùng glibc hay musl, và Node tra ngược tên của từng kết nối đang mở, đồng bộ trên luồng chính. `gdb` cho thấy npm đứng ở `getnameinfo` → `uv_getnameinfo` → `node::report::ReportEndpoint`. Nhờ vậy, lần triển khai Express mất 461 giây và Vite 477 giây. Đã sửa ở hai chỗ:
+  1. **Buildpack:** dùng Node 22.14 với `NODE_OPTIONS=--report-exclude-network`; Node 22.11 bỏ qua cờ này. `npm install` của Express còn 7 giây.
+  2. **Mạng của staging:** dnsmasq của `incusbr0` tự trả lời mọi truy vấn ngược: `incus network set incusbr0 raw.dnsmasq "$(printf 'local=/in-addr.arpa/\nlocal=/ip6.arpa/')"`. Lệnh này cũng có trong preseed của script 20 và ở mục "Cài một lần" bên trên.
+     - Tra ngược 104.16.10.34 còn 3 ms; tên của container (`hello-0027e5.incus`) vẫn tra ngược được.
+     - Khách tự chạy `npm install` (không cờ, cache trống) xong trong 6 giây.
+     - Đổi lại, IP công khai không còn tra ra tên.
+     - Lúc đặt, dnsmasq khởi động lại; IP của container không đổi.
 
 ## Cụm ảo 3 node
 

@@ -522,6 +522,40 @@ class IncusDriver:
             code if isinstance(code, int) else None, stdout, stderr, cut_out or cut_err
         )
 
+    def read_exec_output(self, project: str, name: str, exec_id: str) -> str:
+        # With record-output, Incus hands the command a log file as its stdout, so the file
+        # grows while the command runs.
+        path = f"/1.0/instances/{name}/logs/exec-output/exec_{exec_id}.stdout"
+        try:
+            return self._read_log(path, project)[0]
+        except DriverError:
+            return ""
+
+    def push_file(self, project: str, name: str, path: str, data: bytes, mode: int) -> None:
+        try:
+            resp = self._http.post(
+                f"/1.0/instances/{name}/files",
+                params={"project": project, "path": path},
+                content=data,
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "X-Incus-type": "file",
+                    "X-Incus-uid": "0",
+                    "X-Incus-gid": "0",
+                    "X-Incus-mode": f"{mode:04o}",
+                    "X-Incus-write": "overwrite",
+                },
+                timeout=120,
+            )
+        except httpx.HTTPError as exc:
+            raise DriverError(f"cannot reach Incus: {exc}") from exc
+        if resp.status_code >= 400:
+            try:
+                message = resp.json().get("error")
+            except ValueError:
+                message = None
+            raise DriverError(message or f"Incus answered HTTP {resp.status_code} to a file push")
+
     def _read_log(self, path: str | None, project: str) -> tuple[str, bool]:
         """Up to EXEC_OUTPUT_LIMIT bytes of an exec log file, and whether it was cut."""
         if not path:

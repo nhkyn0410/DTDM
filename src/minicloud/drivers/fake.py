@@ -1,8 +1,10 @@
 """In-memory stand-in for the Incus cluster, so everyone can run the API on Windows."""
 
 import itertools
+import json
 from dataclasses import replace
 
+from .. import buildpack
 from .base import (
     DriverError,
     ExecResult,
@@ -31,6 +33,8 @@ class FakeDriver:
         self.cpu_seconds: dict[tuple[str, str], float] = {}  # tests set CPU time used
         self.execs: dict[str, tuple[str, str, list[str], int]] = {}
         self.exec_waits = 0  # waits a command answers "still running" before it finishes
+        self.files: dict[tuple[str, str, str], bytes] = {}  # pushed into containers
+        self.buildpack_failure: str | None = None  # set to make the next deployment fail
         self._counter = itertools.count(2)
 
     def _maybe_fail(self) -> None:
@@ -121,7 +125,38 @@ class FakeDriver:
             self.execs[exec_id] = (project_, name_, command, waits - 1)
             return None
         del self.execs[exec_id]
+        if any(part.endswith("minicloud-buildpack.py") for part in command):
+            return self._fake_buildpack(project_, name_, command[-1])
         return ExecResult(0, f"(fake) {command[-1]}\n", "")
+
+    def _fake_buildpack(self, project: str, name: str, archive_path: str) -> ExecResult:
+        """Recognise the pushed zip as the real buildpack would, without installing anything."""
+        plan = None
+        try:
+            archive = buildpack.inspect_archive(self.files[(project, name, archive_path)])
+            plan = buildpack.detect(archive.names, archive.read_text)
+            ok, message = self.buildpack_failure is None, self.buildpack_failure or "Đang chạy."
+        except buildpack.UploadError as exc:
+            ok, message = False, str(exc)
+        self.buildpack_failure = None
+        result = {
+            "ok": ok,
+            "stack": plan.stack if plan else None,
+            "label": plan.label if plan else None,
+            "message": message,
+        }
+        lines = [f"==> Nhận ra: {plan.label}"] if plan else []
+        lines.append(buildpack.RESULT_MARKER + json.dumps(result, ensure_ascii=False))
+        return ExecResult(0 if ok else 1, "\n".join(lines) + "\n", "")
+
+    def read_exec_output(self, project: str, name: str, exec_id: str) -> str:
+        return "==> Đang chạy (giả lập)\n" if exec_id in self.execs else ""
+
+    def push_file(self, project: str, name: str, path: str, data: bytes, mode: int) -> None:
+        self._maybe_fail()
+        if self._get(project, name).status != "Running":
+            raise DriverError(f"instance {name} is not running")
+        self.files[(project, name, path)] = data
 
     def evacuate_node(self, name: str) -> None:
         self._maybe_fail()

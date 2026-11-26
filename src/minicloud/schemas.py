@@ -4,7 +4,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from .models import InstanceStatus, InstanceType, OperationAction, OperationStatus
+from .models import (
+    DeploymentStatus,
+    InstanceStatus,
+    InstanceType,
+    OperationAction,
+    OperationStatus,
+)
 
 NAME_PATTERN = r"^[a-z][a-z0-9-]{0,30}[a-z0-9]$"
 SSH_KEY = re.compile(
@@ -192,6 +198,31 @@ class OperationOut(BaseModel):
 class InstanceCreated(BaseModel):
     instance: InstanceOut
     operation: OperationOut
+
+
+class DeploymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    instance_id: str
+    status: DeploymentStatus
+    source: str = Field(description="Tên và cỡ file zip đã tải lên")
+    stack: str | None = Field(description="static, node, node-static, python, php hoặc procfile")
+    stack_label: str | None = Field(description="Công nghệ nhận ra, để hiện cho người dùng")
+    message: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class DeploymentDetailOut(DeploymentOut):
+    log: str = Field(description="Các bước của buildpack; log đầy đủ nằm trong máy")
+
+
+class AppCreated(BaseModel):
+    instance: InstanceOut
+    operation: OperationOut
+    deployment: DeploymentOut
 
 
 class FlavorOut(BaseModel):

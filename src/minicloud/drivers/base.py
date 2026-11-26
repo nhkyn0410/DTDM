@@ -100,3 +100,11 @@ class ComputeDriver(Protocol):
     def wait_exec(self, project: str, name: str, exec_id: str, timeout: float) -> ExecResult | None:
         """Wait up to `timeout` seconds; None if the command is still running."""
         ...
+
+    def read_exec_output(self, project: str, name: str, exec_id: str) -> str:
+        """What a command that is still running has printed to stdout so far ("" if unknown)."""
+        ...
+
+    def push_file(self, project: str, name: str, path: str, data: bytes, mode: int) -> None:
+        """Write a file (owned by root) inside a running container, replacing any old one."""
+        ...

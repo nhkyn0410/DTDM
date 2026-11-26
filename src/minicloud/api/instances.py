@@ -26,14 +26,7 @@ router = APIRouter(tags=["instances"])
 EXEC_WAIT_SECONDS = 20  # per request: well under Cloudflare's 100 s limit
 EXEC_MAX_SECONDS = 600  # a command still running after 10 minutes is killed
 EXEC_KEEP_SECONDS = 1800  # how long a started command can still be asked about
-EXEC_ENV = {
-    "HOME": "/root",
-    "USER": "root",
-    "LANG": "C.UTF-8",
-    "TERM": "dumb",
-    "DEBIAN_FRONTEND": "noninteractive",  # apt-get never stops to ask
-    "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-}
+EXEC_ENV = service.EXEC_ENV
 
 
 @router.get("/projects/{project_id}/instances", response_model=list[InstanceOut])
