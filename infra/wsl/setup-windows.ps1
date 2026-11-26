@@ -13,10 +13,15 @@ Chạy trong PowerShell mở bằng "Run as administrator". Việc nào đã là
 
 Thêm -WhatIf để xem trước mà không đổi gì. Thêm -Undo để hoàn tác các việc 1-4.
 Sau khi chạy phải "wsl --shutdown" để WSL nhận cấu hình mạng mới; mọi distro WSL sẽ dừng.
+Thêm -SkipNetwork để bỏ qua việc 1 và 2, cho máy chỉ chạy staging một node (laptop-1 tạm), không
+vào cụm trong mạng LAN. Khi đó không phải "wsl --shutdown", và staging chạy liền mạch.
 Hướng dẫn đầy đủ: docs/buoi-thu-wsl.md. File phải lưu UTF-8 có BOM cho Windows PowerShell 5.1.
 
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File infra\wsl\setup-windows.ps1 -Distro Ubuntu-24.04 -WhatIf
+
+.EXAMPLE
+powershell -ExecutionPolicy Bypass -File infra\wsl\setup-windows.ps1 -Distro Ubuntu -SkipNetwork
 
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File infra\wsl\setup-windows.ps1 -Distro Ubuntu-24.04 -MoveDistroTo D:\WSL\Ubuntu-24.04
@@ -29,6 +34,8 @@ param(
     [ValidateRange(0, 256)][int]$WslMemoryGB = 0,
     # Thư mục mới cho đĩa ảo của distro, ví dụ D:\WSL\Ubuntu-24.04.
     [string]$MoveDistroTo,
+    # Bỏ qua mạng mirrored và tường lửa: máy chỉ chạy staging, không vào cụm LAN.
+    [switch]$SkipNetwork,
     [switch]$Undo
 )
 
@@ -98,7 +105,7 @@ function Test-Admin {
 if (-not (Test-Admin) -and -not $WhatIfPreference) {
     throw 'Cần mở PowerShell bằng "Run as administrator" (hoặc thêm -WhatIf để chỉ xem trước).'
 }
-if ([Environment]::OSVersion.Version.Build -lt 22621) {
+if (-not $SkipNetwork -and [Environment]::OSVersion.Version.Build -lt 22621) {
     throw 'Mạng mirrored của WSL cần Windows 11 22H2 trở lên.'
 }
 
@@ -148,6 +155,9 @@ if ($Undo) {
 
 # ---------------------------------------------------------------- 1. .wslconfig
 
+if ($SkipNetwork) {
+    Write-Step 'Bỏ qua mạng mirrored và tường lửa (-SkipNetwork): WSL giữ mạng hiện tại'
+} else {
 Write-Step "Bật mạng mirrored trong $WslConfig"
 $lines = @()
 if (Test-Path -LiteralPath $WslConfig) { $lines = @(Get-Content -LiteralPath $WslConfig) }
@@ -181,6 +191,7 @@ foreach ($netProfile in @(Get-NetConnectionProfile -ErrorAction SilentlyContinue
         Write-Output '    Cần chú ý: mạng này là Public nên cổng vẫn đóng. Ở mạng LAN của buổi thử, chuyển sang Private.'
     }
 }
+}   # hết phần mạng (bỏ qua khi -SkipNetwork)
 
 # ---------------------------------------------------------------- 3. Nguồn điện khi cắm sạc
 
@@ -242,6 +253,12 @@ if ($MoveDistroTo) {
 }
 
 Write-Output ''
+if ($SkipNetwork) {
+    Write-Output 'Việc tiếp theo: không cần wsl --shutdown. Tác vụ có hiệu lực từ lần Windows khởi động sau.'
+    Write-Output "  Xem tác vụ: Get-ScheduledTask -TaskName $TaskName"
+    Write-Output '  Thử: khởi động lại Windows, chờ 3 phút rồi mở app từ điện thoại (chưa đăng nhập cũng phải chạy).'
+    return
+}
 Write-Output 'Việc tiếp theo:'
 Write-Output '  1. wsl --shutdown   (mọi distro WSL dừng, kể cả staging nếu đây là laptop-1)'
 Write-Output "  2. wsl -d $Distro -- ip -4 -br addr   phải thấy IP LAN của Windows"

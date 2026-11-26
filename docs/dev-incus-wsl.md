@@ -79,7 +79,20 @@ Sau đó chạy `uv run uvicorn minicloud.main:create_app --factory --reload` nh
 
 Phần này dựng y như laptop-1 thật, bằng chính các script trong `infra/node`. Cả nhóm vì vậy dùng được `https://cloud-api.vexenhanh.id.vn` trước khi có cụm 3 laptop.
 
-Giữ WSL chạy nền. Máy tính cũng phải bật và không được ngủ:
+Giữ WSL chạy nền. Máy tính cũng phải bật và không được ngủ. Cách bền nhất là chạy một lần, trong PowerShell mở bằng "Run as administrator":
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infra\wsl\setup-windows.ps1 -Distro Ubuntu -SkipNetwork
+```
+
+Lệnh này làm hai việc:
+
+- Khi cắm sạc, máy không ngủ, không ngủ đông, và gập máy không làm gì. Trước đó laptop-1 ngủ sau 1 giờ và ngủ đông sau 15 phút; staging đã ngừng 30 phút vì máy ngủ.
+- Tạo tác vụ `minicloud-wsl`: Windows vừa khởi động là bật WSL, không cần ai đăng nhập.
+
+`-SkipNetwork` giữ nguyên mạng của WSL, nên staging không phải khởi động lại. Thêm `-WhatIf` để xem trước; dùng `-Undo` để trả lại như cũ. Máy vẫn ngủ khi chạy pin.
+
+Khi chưa chạy lệnh trên, hoặc sau một lần `wsl --shutdown`, giữ WSL bằng:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File infra\wsl\keep-wsl-alive.ps1
