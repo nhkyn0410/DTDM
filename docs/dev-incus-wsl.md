@@ -88,9 +88,11 @@ powershell -ExecutionPolicy Bypass -File infra\wsl\setup-windows.ps1 -Distro Ubu
 Lệnh này làm hai việc:
 
 - Khi cắm sạc, máy không ngủ, không ngủ đông, và gập máy không làm gì. Trước đó laptop-1 ngủ sau 1 giờ và ngủ đông sau 15 phút; staging đã ngừng 30 phút vì máy ngủ.
-- Tạo tác vụ `minicloud-wsl`: Windows vừa khởi động là bật WSL, không cần ai đăng nhập.
+- Tạo tác vụ `minicloud-wsl`: Windows vừa khởi động là bật WSL, không cần ai đăng nhập. Đã thử ngày 26/11/2026: Windows khởi động lúc 09:29:06, tác vụ bật WSL lúc 09:29:37 (trước khi có phiên đăng nhập nào), API trả lời từ 09:30:28. Khoảng 6,5 phút staging ngừng trong lần khởi động lại đó không bị tính tiền (394 giây-máy).
 
 `-SkipNetwork` giữ nguyên mạng của WSL, nên staging không phải khởi động lại. Thêm `-WhatIf` để xem trước; dùng `-Undo` để trả lại như cũ. Máy vẫn ngủ khi chạy pin.
+
+Task Scheduler có thể ghi Last Run Result của `minicloud-wsl` là `0x800710E0`. Đó không phải lỗi: lúc đăng nhập, tác vụ được kích hoạt lần nữa và bị bỏ qua vì WSL đã chạy từ lúc khởi động. Muốn biết tác vụ có đang giữ WSL không, chạy `Get-Process wsl`: phải có tiến trình với `SessionId` bằng 0.
 
 Khi chưa chạy lệnh trên, hoặc sau một lần `wsl --shutdown`, giữ WSL bằng:
 

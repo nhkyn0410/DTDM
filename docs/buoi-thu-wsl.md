@@ -1,5 +1,7 @@
 # Buổi thử: cụm 2 laptop chạy trong WSL2
 
+> **Đã huỷ ngày 26/11/2026:** nhóm không dựng cụm laptop-2 và laptop-3 (xem trạng thái của [ADR-0006](adr/0006-node-trong-wsl2.md)). Tài liệu được giữ lại cho lần làm tiếp.
+
 Buổi thử trả lời câu hỏi của [ADR-0006](adr/0006-node-trong-wsl2.md): hai laptop Windows có ghép được thành một cụm Incus khi node chạy trong WSL2 hay không, với mạng mirrored và pool btrfs. Kết quả quyết định nhóm chốt cách chạy node nào.
 
 File này viết cho cả người lẫn agent (Codex, Claude Code…). Mỗi máy có một agent thì nhắn cho agent của máy đó:

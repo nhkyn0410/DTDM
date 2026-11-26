@@ -4,7 +4,7 @@ Bảy màn theo mục 8 của đề cương, chạy trên staging (`https://clou
 
 ## Chuẩn bị (tối thứ Sáu, kiểm tra lại lúc 7:00 sáng thứ Bảy)
 
-- [ ] laptop-1 cắm sạc, tắt chế độ ngủ khi gập máy, WSL đang chạy (tác vụ `minicloud-wsl` của `infra/wsl/setup-windows.ps1`).
+- [ ] laptop-1 cắm sạc, tắt chế độ ngủ khi gập máy, WSL đang chạy (tác vụ `minicloud-wsl` của `infra/wsl/setup-windows.ps1`). Đã thử ngày 26/11: khởi động lại Windows thì staging tự chạy lại sau khoảng 80 giây, không cần đăng nhập.
 - [ ] `https://cloud-api.vexenhanh.id.vn/healthz` trả `{"status":"ok"}`; app `hello` mở được.
 - [ ] Hai tài khoản đã đăng ký sẵn, mỗi tài khoản một trình duyệt (hoặc một cửa sổ ẩn danh):
   - **Khách A:** có một container `web-1` đang chạy nginx;
@@ -60,8 +60,7 @@ Trên điện thoại 4G: mở app của màn 1, rồi mở console và chạy `
 
 ## Màn 6. Rút điện một node
 
-- **Nếu cụm 3 laptop đã chạy:** rút điện laptop đang chạy một app, chỉ cho người xem `incus cluster list` và console.
-- **Nếu chưa có cụm:** chiếu video của cụm ảo 3 VM (`infra/lab`), trong đó `incus cluster evacuate laptop-2` chuyển máy đi và reconciler ghi node mới trong vòng 1 phút.
+Nhóm không dựng cụm 3 laptop thật ([ADR-0006](adr/0006-node-trong-wsl2.md)), nên màn này chiếu video của cụm ảo 3 VM (`infra/lab`), trong đó `incus cluster evacuate laptop-2` chuyển máy đi và reconciler ghi node mới trong vòng 1 phút.
 
 Nói rõ giới hạn: chưa có cơ chế tự tạo lại máy ở laptop khác khi một laptop chết hẳn.
 
@@ -70,7 +69,7 @@ Nói rõ giới hạn: chưa có cơ chế tự tạo lại máy ở laptop khá
 1. Thẻ **Điện năng** trên console: công suất ước tính từng laptop, máy của khách đang dùng bao nhiêu W. Đăng nhập bằng tài khoản admin để thấy thêm mục **Nhà cung cấp**: doanh thu mô phỏng trong tháng, công suất cả cụm, vCPU và RAM đã cấp trên từng laptop (giám sát phía nhà cung cấp).
 2. Sao kê tháng: số Wh và gam CO₂ của từng máy.
 3. Admin gọi `GET /v1/admin/green/plan`: laptop nào nên ngủ, máy nào phải chuyển, tiết kiệm bao nhiêu W.
-4. **Nếu có cụm thật** (mọi lệnh gọi trên `/docs` bằng key admin):
+4. **Không có cụm thật**, nên bước này chiếu video quay trên cụm ảo. Ở đó node "ngủ" bằng `incus pause` VM của nó và thức bằng `incus resume`, thay cho Wake-on-LAN. Chưa có video thì dừng ở bước 3. Các lệnh gọi trên `/docs` bằng key admin:
    1. `POST /v1/admin/nodes/laptop-3/evacuate`: Incus chuyển máy của laptop-3 sang laptop khác, database và tuyến Traefik theo ngay. API từ chối laptop-1 (node ghim) và mọi yêu cầu làm cụm mất quorum.
    2. Cho laptop-3 ngủ, hoặc tắt hẳn (laptop-3 bật được Wake-on-LAN khi đã tắt). Thẻ Điện năng cho thấy công suất cả cụm giảm.
    3. `POST /v1/admin/nodes/laptop-3/wake` gửi gói Wake-on-LAN (MAC trong `MINICLOUD_GREEN_NODE_MACS`). Khi laptop-3 vào lại cụm, gọi `POST /v1/admin/nodes/laptop-3/restore`.

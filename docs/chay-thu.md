@@ -1,6 +1,6 @@
 # Chạy thử với người dùng thật
 
-Theo đề cương, nhóm mời 10–20 người dùng thật trong 2–3 tuần. Số liệu của đợt này là chương "báo cáo vận hành thử": sự cố và postmortem, SLA đạt được, khảo sát người dùng.
+Theo đề cương, nhóm mời 10–20 người dùng thật trong 2–3 tuần. Vì hạn nộp là 08:00 ngày 28/11/2026, đợt này rút còn 1–2 ngày với 3–5 người, chạy trên staging (laptop-1). Số liệu của đợt này là chương "báo cáo vận hành thử": sự cố và postmortem, SLA đạt được, khảo sát người dùng.
 
 Người dùng đọc [hướng dẫn](https://cloud.vexenhanh.id.vn/console/huong-dan.html) và [điều khoản](https://cloud.vexenhanh.id.vn/console/dieu-khoan.html) ngay trên console. Mã nguồn của hai trang nằm ở `src/minicloud/console/`.
 
@@ -26,7 +26,7 @@ Người dùng đọc [hướng dẫn](https://cloud.vexenhanh.id.vn/console/huo
 
 ## Tin mời mẫu
 
-> Chào bạn, nhóm mình đang làm đồ án môn Điện toán đám mây: một cloud nhỏ chạy trên 3 laptop. Bạn dùng thử giúp nhóm trong [2 tuần, tới ngày …] nhé, hoàn toàn miễn phí.
+> Chào bạn, nhóm mình đang làm đồ án môn Điện toán đám mây: một cloud nhỏ tự dựng trên laptop của nhóm. Bạn dùng thử giúp nhóm từ hôm nay tới [trưa thứ Sáu 27/11] nhé, hoàn toàn miễn phí.
 >
 > 1. Mở https://cloud.vexenhanh.id.vn và đăng ký với mã mời: [mã mời]
 > 2. Làm theo hướng dẫn: https://cloud.vexenhanh.id.vn/console/huong-dan.html
@@ -43,7 +43,7 @@ Người dùng đọc [hướng dẫn](https://cloud.vexenhanh.id.vn/console/huo
 | Khi có người xin | Nạp thêm credit | `sudo minicloud-admin grant-credits <org_id> 500` |
 | Khi có báo cáo lạm dụng | Gỡ địa chỉ công khai ngay, rồi mới tìm hiểu | `POST /v1/admin/instances/{id}/unpublish` |
 | Khi có sự cố | Ghi vào nhật ký sự cố (mục dưới) | |
-| Cuối mỗi tuần | Lưu số liệu | `sudo minicloud-admin stats > stats-$(date +%F).json` |
+| Cuối đợt | Lưu số liệu | `sudo minicloud-admin stats > stats-$(date +%F).json` |
 
 Dấu hiệu lạm dụng cần để ý: CPU của một máy ở 100% nhiều giờ liền, hoặc thẻ Điện năng cho thấy một tổ chức dùng nhiều W bất thường; hãy hỏi chủ máy trước khi dừng.
 

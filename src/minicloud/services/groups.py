@@ -319,6 +319,7 @@ def autoscale(db: Session, now: datetime) -> list[str]:
             target_type="group",
             target_id=group.id,
             org_id=project.org_id,
+            at=now,
             detail={
                 "from": len(serving),
                 "to": target,

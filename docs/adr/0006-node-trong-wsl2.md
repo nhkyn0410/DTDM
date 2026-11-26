@@ -1,6 +1,6 @@
 # ADR-0006: Node chạy trong WSL2 trên Windows của từng laptop
 
-- Trạng thái: Đề xuất. Chốt sau buổi thử 2 máy cùng mạng (mục "Thử trước khi chốt").
+- Trạng thái: Không thực hiện trong đồ án. Ngày 2026-11-26 nhóm quyết định không dựng cụm laptop-2 và laptop-3 vì không kịp hạn 28/11/2026, nên buổi thử dưới đây không diễn ra. Phần nhiều node chỉ được kiểm chứng trên cụm ảo 3 VM (`infra/lab`). Mục "Cập nhật 2026-11-26" ở cuối ghi những phần vẫn được dùng cho staging.
 - Ngày: 2026-11-25
 - Thay một phần [ADR-0003](0003-ha-tang-3-laptop.md): cách cài hệ điều hành và loại pool lưu trữ.
 
@@ -69,3 +69,12 @@ Một buổi với 2 laptop cắm dây vào cùng một router. Nên dùng lapto
 - **OVN (vai trò 2):** nhân WSL có Open vSwitch nên vẫn làm được, nhưng chưa thử.
 - **Báo cáo đồ án:** phải ghi rõ cụm chạy trong WSL2, không chạy thẳng trên phần cứng như ADR-0003 dự định, và giải thích vì sao.
 - **Nếu không gom được 2 máy về một chỗ:** có thể nối 3 máy ở 3 nhà qua VPN (WireGuard). Cách này vẫn cần 2 máy chạy cùng lúc và có độ trễ cao hơn, nên chỉ dùng khi không còn cách nào khác.
+
+## Cập nhật 2026-11-26
+
+Cụm không được dựng, nhưng hai phần của quyết định này vẫn chạy trên staging (laptop-1, một node):
+
+- **Pool btrfs:** máy của khách nằm trên pool btrfs `tenants` (20 GiB), nên giới hạn ổ có tác dụng.
+- **Không ngủ, tự bật WSL:** `setup-windows.ps1 -SkipNetwork` tắt chế độ ngủ khi cắm sạc và tạo tác vụ `minicloud-wsl`, nhưng không bật mạng mirrored. Thử ngày 26/11: Windows khởi động lúc 09:29:06, tác vụ bật WSL lúc 09:29:37, trước khi có phiên đăng nhập nào; API trả lời từ 09:30:28. Như vậy bước 4 của buổi thử đã đạt trên một máy.
+
+Nếu làm tiếp sau đồ án: làm buổi thử 2 máy trong [buoi-thu-wsl.md](../buoi-thu-wsl.md) rồi mới chốt C hay D.
