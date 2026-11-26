@@ -10,14 +10,17 @@ from ..models import (
     AuditLog,
     Instance,
     InstanceStatus,
+    Membership,
     Operation,
     OperationAction,
     OperationStatus,
     Organization,
     Project,
+    Role,
     UsageRecord,
     User,
 )
+from . import statements
 
 
 def percentile(values: list[float], p: float) -> float | None:
@@ -90,3 +93,54 @@ def collect(db: Session, now: datetime, grid_kg_co2_per_kwh: float) -> dict[str,
             select(func.count()).select_from(AuditLog).where(AuditLog.action == "instance.exec")
         ),
     }
+
+
+def organizations(db: Session, now: datetime) -> list[dict[str, Any]]:
+    """One row per organization, oldest first: owner, credits, spending this month, machines.
+
+    Customers never see an org id in the console, but granting credits needs one.
+    """
+    start, _ = statements.month_bounds(statements.month_of(now))
+    spent = dict(
+        db.execute(
+            select(UsageRecord.org_id, func.sum(UsageRecord.amount_millicredits))
+            .where(UsageRecord.period_end > start, UsageRecord.period_end <= now)
+            .group_by(UsageRecord.org_id)
+        ).all()
+    )
+    machines: dict[str, dict[str, int]] = {}
+    for org_id, status, n in db.execute(
+        select(Project.org_id, Instance.status, func.count(Instance.id))
+        .join(Instance, Instance.project_id == Project.id)
+        .where(Instance.status != InstanceStatus.deleted)
+        .group_by(Project.org_id, Instance.status)
+    ).all():
+        counts = machines.setdefault(org_id, {"running": 0, "total": 0})
+        counts["total"] += n
+        if status == InstanceStatus.running:
+            counts["running"] += n
+    owners: dict[str, str] = {}
+    for org_id, email in db.execute(
+        select(Membership.org_id, User.email)
+        .join(User, User.id == Membership.user_id)
+        .where(Membership.role == Role.owner)
+        .order_by(User.created_at)
+    ).all():
+        owners.setdefault(org_id, email)
+    rows = []
+    for org in db.scalars(select(Organization).order_by(Organization.created_at)):
+        counts = machines.get(org.id, {"running": 0, "total": 0})
+        rows.append(
+            {
+                "id": org.id,
+                "name": org.name,
+                "owner_email": owners.get(org.id),
+                "created_at": org.created_at,
+                "credits": org.balance_millicredits / 1000,
+                "suspended": org.suspended,
+                "spent_month": int(spent.get(org.id) or 0) / 1000,
+                "instances_running": counts["running"],
+                "instances_total": counts["total"],
+            }
+        )
+    return rows

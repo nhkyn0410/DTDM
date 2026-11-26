@@ -66,7 +66,7 @@ Nói rõ giới hạn: chưa có cơ chế tự tạo lại máy ở laptop khá
 
 ## Màn 7. Đêm vắng khách: Green cloud
 
-1. Thẻ **Điện năng** trên console: công suất ước tính từng laptop, máy của khách đang dùng bao nhiêu W. Đăng nhập bằng tài khoản admin để thấy thêm mục **Nhà cung cấp**: doanh thu mô phỏng trong tháng, công suất cả cụm, vCPU và RAM đã cấp trên từng laptop (giám sát phía nhà cung cấp).
+1. Thẻ **Điện năng** trên console: công suất ước tính từng laptop, máy của khách đang dùng bao nhiêu W. Đăng nhập bằng tài khoản admin để thấy thêm mục **Nhà cung cấp**: doanh thu mô phỏng trong tháng, công suất cả cụm, vCPU và RAM đã cấp trên từng laptop (giám sát phía nhà cung cấp). Bên dưới là bảng khách hàng (số dư, đã tiêu, nút nạp credit), bảng máy của mọi khách (nút gỡ địa chỉ công khai), số liệu chạy thử, và 50 sự kiện gần nhất của cả nền tảng, trong đó có lần B bị chặn ở màn 3.
 2. Sao kê tháng: số Wh và gam CO₂ của từng máy.
 3. Admin gọi `GET /v1/admin/green/plan`: laptop nào nên ngủ, máy nào phải chuyển, tiết kiệm bao nhiêu W.
 4. **Không có cụm thật**, nên bước này chiếu video quay trên cụm ảo. Ở đó node "ngủ" bằng `incus pause` VM của nó và thức bằng `incus resume`, thay cho Wake-on-LAN. Chưa có video thì dừng ở bước 3. Các lệnh gọi trên `/docs` bằng key admin:

@@ -39,15 +39,15 @@ Người dùng đọc [hướng dẫn](https://cloud.vexenhanh.id.vn/console/huo
 | --- | --- | --- |
 | Mỗi sáng | Xem API, worker và tunnel còn chạy | `systemctl status minicloud-api traefik cloudflared` |
 | Mỗi sáng | Xem lỗi trong 24 giờ qua | `journalctl -u minicloud-api --since yesterday \| grep -E "ERROR\|WARNING"` |
-| Mỗi sáng | Xem laptop và tải | `GET /v1/admin/nodes`, `GET /v1/admin/green/plan` (trên `/docs`, bằng key admin) |
-| Khi có người xin | Nạp thêm credit | `sudo minicloud-admin grant-credits <org_id> 500` |
-| Khi có báo cáo lạm dụng | Gỡ địa chỉ công khai ngay, rồi mới tìm hiểu | `POST /v1/admin/instances/{id}/unpublish` |
+| Mỗi sáng | Xem laptop, khách hàng, máy và sự kiện bị chặn | Mục **Nhà cung cấp** trên console (đăng nhập bằng tài khoản admin); kế hoạch Green: `GET /v1/admin/green/plan` trên `/docs` |
+| Khi có người xin | Nạp thêm credit | Bảng **Khách hàng** trong mục Nhà cung cấp: nhập số credit, bấm **Nạp**; hoặc `sudo minicloud-admin grant-credits <org_id> 500` |
+| Khi có báo cáo lạm dụng | Gỡ địa chỉ công khai ngay, rồi mới tìm hiểu | Nút **Gỡ địa chỉ** ở bảng **Máy của mọi khách**; hoặc `POST /v1/admin/instances/{id}/unpublish` |
 | Khi có sự cố | Ghi vào nhật ký sự cố (mục dưới) | |
 | Cuối đợt | Lưu số liệu | `sudo minicloud-admin stats > stats-$(date +%F).json` |
 
 Dấu hiệu lạm dụng cần để ý: CPU của một máy ở 100% nhiều giờ liền, hoặc thẻ Điện năng cho thấy một tổ chức dùng nhiều W bất thường; hãy hỏi chủ máy trước khi dừng.
 
-Lấy `org_id` của một người: trong audit log, hoặc nhờ họ mở `https://cloud-api.vexenhanh.id.vn/v1/orgs` sau khi bấm Authorize trên `/docs`.
+Lấy `org_id` của một người: `sudo minicloud-admin orgs` liệt kê mọi tổ chức, kèm giờ đăng ký, số dư, số máy đang chạy và email chủ tổ chức.
 
 ## Nhật ký sự cố
 

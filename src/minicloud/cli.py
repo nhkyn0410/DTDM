@@ -5,10 +5,12 @@ uv run minicloud backup --dir backups
 uv run minicloud make-admin an@example.com
 uv run minicloud grant-credits org_1a2b3c4d5e6f 1000
 uv run minicloud stats
+uv run minicloud orgs
 """
 
 import argparse
 import json
+from datetime import UTC
 from pathlib import Path
 
 from sqlalchemy import select
@@ -19,6 +21,7 @@ from .config import get_settings
 from .db import make_engine, make_session_factory
 from .models import Organization, User, utcnow
 from .services import metering, stats
+from .services.statements import BILLING_TZ
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -37,6 +40,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser(
         "stats", help="số liệu cho báo cáo chạy thử (JSON): người dùng, thời gian tạo máy"
     )
+    sub.add_parser("orgs", help="liệt kê tổ chức: mã, email chủ, số dư, số máy đang chạy")
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -83,6 +87,18 @@ def main(argv: list[str] | None = None) -> None:
         elif args.command == "stats":
             figures = stats.collect(db, utcnow(), settings.green_grid_kg_co2_per_kwh)
             print(json.dumps(figures, ensure_ascii=False, indent=2))
+        elif args.command == "orgs":
+            rows = stats.organizations(db, utcnow())
+            if not rows:
+                print("chưa có tổ chức nào")
+            for org in rows:
+                since = org["created_at"].replace(tzinfo=UTC).astimezone(BILLING_TZ)
+                locked = "  (bị khoá)" if org["suspended"] else ""
+                print(
+                    f"{org['id']}  {since:%d/%m %H:%M}  {org['credits']:>8.1f} credit"
+                    f"  {org['instances_running']} máy chạy  {org['owner_email'] or '-'}"
+                    f"  {org['name']}{locked}"
+                )
 
 
 if __name__ == "__main__":

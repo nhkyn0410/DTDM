@@ -475,23 +475,34 @@ async function runCommand(command) {
   }
 }
 
-async function refreshProvider() {
-  if (Date.now() - state.providerAt < 30000) return; // it asks Incus about every laptop
+const statTile = (label, value, unit) => el("div", { class: "stat" },
+  el("span", { class: "label" }, label), el("span", { class: "value" }, value), el("span", { class: "unit" }, unit));
+
+async function refreshProvider(force = false) {
+  if (!force && Date.now() - state.providerAt < 30000) return; // the overview asks Incus about every laptop
   state.providerAt = Date.now();
-  let view;
-  try {
-    view = await api("GET", "/v1/admin/overview");
-  } catch {
-    $("provider-note").textContent = "Chưa đọc được số liệu của cụm; thử lại sau nửa phút.";
-    return;
+  const results = await Promise.allSettled([
+    api("GET", "/v1/admin/overview"),
+    api("GET", "/v1/admin/orgs"),
+    api("GET", "/v1/admin/instances"),
+    api("GET", "/v1/admin/stats"),
+    api("GET", "/v1/admin/audit?limit=50"),
+  ]);
+  const renderers = [renderOverview, renderCustomers, renderFleet, renderTrial, renderPlatformAudit];
+  results.forEach((result, i) => {
+    if (result.status === "fulfilled") renderers[i](result.value);
+  });
+  if (results.some((result) => result.status === "rejected")) {
+    $("provider-note").textContent = "Chưa đọc được một phần số liệu; thử lại sau nửa phút.";
   }
-  const tile = (label, value, unit) => el("div", { class: "stat" },
-    el("span", { class: "label" }, label), el("span", { class: "value" }, value), el("span", { class: "unit" }, unit));
+}
+
+function renderOverview(view) {
   $("provider-stats").replaceChildren(
-    tile("Doanh thu tháng này", fmt(view.revenue_credits_month), `credit ≈ ${vnd(view.revenue_vnd_month)}`),
-    tile("Công suất cả cụm", fmt(view.cluster_watts), "W, ước tính"),
-    tile("Máy đang chạy", String(view.instances_running), `của ${view.organizations_running}/${view.organizations} tổ chức`),
-    tile("vCPU đã cấp", view.vcpu_overcommit === null ? "—" : `${fmt(view.vcpu_overcommit)}×`,
+    statTile("Doanh thu tháng này", fmt(view.revenue_credits_month), `credit ≈ ${vnd(view.revenue_vnd_month)}`),
+    statTile("Công suất cả cụm", fmt(view.cluster_watts), "W, ước tính"),
+    statTile("Máy đang chạy", String(view.instances_running), `của ${view.organizations_running}/${view.organizations} tổ chức`),
+    statTile("vCPU đã cấp", view.vcpu_overcommit === null ? "—" : `${fmt(view.vcpu_overcommit)}×`,
       view.memory_allocated_percent === null ? "" : `số luồng thật; RAM đã cấp ${fmt(view.memory_allocated_percent)}%`));
   const tbody = $("provider-nodes");
   tbody.replaceChildren();
@@ -505,6 +516,125 @@ async function refreshProvider() {
       el("td", {}, String(n.instances))));
   }
   $("provider-note").textContent = `Tháng ${Number(view.month.slice(5))}/${view.month.slice(0, 4)}: ${fmt(view.energy_wh_month)} Wh điện cho máy của khách. ${view.groups} nhóm máy tự co giãn. Doanh thu là credit mô phỏng.`;
+}
+
+function emptyRow(columns, text) {
+  return el("tr", {}, el("td", { class: "empty", colspan: String(columns) }, text));
+}
+
+// "10:32 25/11": the provider's tables have many columns, so their times leave out the year.
+function shortWhen(iso, seconds = false) {
+  const at = new Date(`${iso}Z`); // the API speaks UTC
+  const pad = (n) => String(n).padStart(2, "0");
+  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}${seconds ? `:${pad(at.getSeconds())}` : ""}`;
+  return `${time} ${pad(at.getDate())}/${pad(at.getMonth() + 1)}`;
+}
+
+function renderCustomers(orgs) {
+  const tbody = $("provider-orgs");
+  tbody.replaceChildren();
+  if (orgs.length === 0) tbody.append(emptyRow(6, "Chưa có tổ chức nào."));
+  for (const org of orgs) {
+    const amount = el("input", {
+      type: "number", min: "1", max: "100000", step: "1", value: "500",
+      "aria-label": `Số credit nạp cho ${org.name}`,
+    });
+    tbody.append(el("tr", {},
+      el("td", {}, el("strong", {}, org.name), el("div", { class: "muted small" }, org.id)),
+      el("td", {}, org.owner_email || "—",
+        el("div", { class: "muted small" }, `đăng ký ${shortWhen(org.created_at)}`)),
+      el("td", { class: "num" }, fmt(org.credits),
+        org.suspended ? el("div", {}, el("span", { class: "badge error" }, "Bị khoá")) : null),
+      el("td", { class: "num" }, fmt(org.spent_month)),
+      el("td", { class: "num" }, `${org.instances_running}/${org.instances_total}`),
+      el("td", {}, el("div", { class: "grant" }, amount,
+        actionButton("Nạp", () => grantCredits(org, amount.value))))));
+  }
+}
+
+async function grantCredits(org, raw) {
+  const credits = Number(raw);
+  if (!Number.isInteger(credits) || credits < 1 || credits > 100000) {
+    throw new Error("Số credit phải là số nguyên từ 1 tới 100.000.");
+  }
+  clearBanner();
+  const billing = await api("POST", `/v1/admin/orgs/${org.id}/credits`,
+    { credits, reason: "nạp từ mục Nhà cung cấp" });
+  banner(`Đã nạp ${fmt(credits)} credit cho ${org.name}; số dư mới ${fmt(billing.credits)} credit.`, "info");
+  await refreshProvider(true);
+  if (org.id === state.org.id) await refresh(); // the operator topped up their own organization
+}
+
+function renderFleet(list) {
+  const tbody = $("provider-instances");
+  tbody.replaceChildren();
+  if (list.length === 0) tbody.append(emptyRow(6, "Chưa có máy nào."));
+  for (const inst of list) {
+    const kind = inst.type === "virtual-machine" ? "Máy ảo" : "Container";
+    const host = typeof inst.public_hostname === "string" ? inst.public_hostname : null;
+    let address = "—";
+    if (host && !inst.public_blocked && inst.status === "running") {
+      address = el("a", { href: `https://${host}`, target: "_blank", rel: "noopener noreferrer" }, host);
+    } else if (host) {
+      address = el("span", { class: "muted" }, inst.public_blocked ? `${host} (đã gỡ)` : host);
+    }
+    const toggle = host
+      ? actionButton(inst.public_blocked ? "Mở lại" : "Gỡ địa chỉ",
+        () => setPublished(inst, inst.public_blocked), inst.public_blocked ? "" : "danger")
+      : null;
+    tbody.append(el("tr", {},
+      el("td", {}, el("strong", {}, inst.name), el("div", { class: "muted small" }, `${kind} · ${inst.flavor}`)),
+      el("td", {}, inst.org_name),
+      el("td", {}, el("span", { class: `badge ${inst.status}` }, STATUS_TEXT[inst.status] || inst.status)),
+      el("td", {}, inst.node || "—"),
+      el("td", { class: "host" }, address),
+      el("td", {}, toggle)));
+  }
+}
+
+async function setPublished(inst, publish) {
+  clearBanner();
+  await api("POST", `/v1/admin/instances/${inst.id}/${publish ? "publish" : "unpublish"}`);
+  banner(publish ? `Đã mở lại địa chỉ công khai của ${inst.name}.`
+    : `Đã gỡ địa chỉ công khai của ${inst.name}; máy vẫn chạy.`, "info");
+  await refreshProvider(true);
+}
+
+function renderTrial(figures) {
+  const container = figures.create_seconds ? figures.create_seconds.container : null;
+  const failed = Object.values(figures.create_failed || {}).reduce((sum, n) => sum + n, 0);
+  $("provider-trial").replaceChildren(
+    statTile("Người dùng", String(figures.users),
+      `${figures.organizations} tổ chức, ${figures.organizations_running_now} đang có máy chạy`),
+    statTile("Tạo container", container ? `${fmt(container.p50)} giây` : "—",
+      container ? `trung vị; p95 ${fmt(container.p95)} giây; ${container.count} lần` : "chưa có lần nào"),
+    statTile("Tạo máy lỗi", String(failed), "lần"),
+    statTile("Giờ máy chạy", fmt(figures.compute_hours), `giờ; ${figures.commands_run} lệnh qua console`));
+  $("provider-trial-note").textContent = `Tính từ người dùng đầu tiên (${figures.since ? when(figures.since) : "chưa có"}). Đã trừ ${fmt(figures.credits_charged)} credit; điện ${fmt(figures.energy_wh)} Wh, khoảng ${fmt(figures.co2_grams)} g CO₂.`;
+}
+
+const OUTCOME_TEXT = { allowed: "Được phép", denied: "Bị chặn" };
+
+function detailText(detail) {
+  if (!detail) return "";
+  const text = Object.entries(detail)
+    .map(([key, value]) => `${key}: ${value !== null && typeof value === "object" ? JSON.stringify(value) : value}`)
+    .join(", ");
+  return text.length > 90 ? `${text.slice(0, 89)}…` : text;
+}
+
+function renderPlatformAudit(events) {
+  const tbody = $("provider-audit");
+  tbody.replaceChildren();
+  if (events.length === 0) tbody.append(emptyRow(5, "Chưa có sự kiện nào."));
+  for (const event of events) {
+    tbody.append(el("tr", { class: event.outcome === "denied" ? "denied" : "" },
+      el("td", {}, shortWhen(event.at, true)),
+      el("td", {}, event.org_name || "—"),
+      el("td", {}, event.actor_email || event.actor_id || "hệ thống"),
+      el("td", { class: "wrap" }, event.action, el("div", { class: "muted small" }, detailText(event.detail))),
+      el("td", {}, OUTCOME_TEXT[event.outcome] || event.outcome)));
+  }
 }
 
 async function refreshGreen() {

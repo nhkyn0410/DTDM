@@ -10,7 +10,7 @@ from minicloud import cli
 from minicloud.config import get_settings
 from minicloud.models import utcnow
 from minicloud.services.metering import run_metering_tick
-from minicloud.services.stats import collect, percentile
+from minicloud.services.stats import collect, organizations, percentile
 
 
 def test_percentiles_use_the_nearest_rank():
@@ -56,6 +56,30 @@ def test_the_stats_command_prints_json(tmp_path, monkeypatch, capsys):
         get_settings.cache_clear()
     figures = json.loads(capsys.readouterr().out)
     assert figures["users"] == 0 and figures["create_seconds"] == {}
+
+
+def test_organizations_show_who_signed_up_and_what_runs(signup, run_worker, session):
+    an = signup("an@example.com", "Nhom An")
+    binh = signup("binh@example.com", "Nhom Binh")
+    binh.create_instance()
+    run_worker()
+    with session() as db:
+        rows = {row["id"]: row for row in organizations(db, utcnow())}
+    assert rows[an.org_id]["owner_email"] == "an@example.com"
+    assert rows[an.org_id]["instances_total"] == 0
+    assert rows[an.org_id]["credits"] == 100  # trial credits in the test settings
+    assert rows[binh.org_id]["owner_email"] == "binh@example.com"
+    assert (rows[binh.org_id]["instances_running"], rows[binh.org_id]["instances_total"]) == (1, 1)
+
+
+def test_the_orgs_command_runs_on_an_empty_database(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("MINICLOUD_DATABASE_URL", f"sqlite:///{tmp_path / 'orgs.db'}")
+    get_settings.cache_clear()
+    try:
+        cli.main(["orgs"])
+    finally:
+        get_settings.cache_clear()
+    assert capsys.readouterr().out.strip() == "chưa có tổ chức nào"
 
 
 def test_an_operation_records_how_long_the_work_took(signup, run_worker, session, driver):

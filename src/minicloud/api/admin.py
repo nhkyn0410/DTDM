@@ -1,7 +1,8 @@
+import json
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from sqlalchemy import func, select
 
 from .. import audit, ingress, reconciler
@@ -16,16 +17,21 @@ from ..green.planner import (
     plan_consolidation,
 )
 from ..models import (
+    AuditLog,
     Instance,
     InstanceGroup,
     InstanceStatus,
     Organization,
     Project,
     UsageRecord,
+    User,
     utcnow,
 )
 from ..scheduler import Allocation
 from ..schemas import (
+    AdminAuditOut,
+    AdminInstanceOut,
+    AdminOrgOut,
     BillingOut,
     CreditsIn,
     GreenPlanOut,
@@ -36,7 +42,7 @@ from ..schemas import (
     OverviewOut,
     ReconcileOut,
 )
-from ..services import green, metering, statements
+from ..services import green, metering, statements, stats
 from ..services.instances import current_allocations
 from ..worker import sync_ingress
 from .billing import billing_out
@@ -184,6 +190,69 @@ def overview(admin: AdminUser, db: DB, driver: Driver, settings: AppSettings) ->
         )
         or 0,
     )
+
+
+@router.get("/orgs", response_model=list[AdminOrgOut])
+def list_orgs(admin: AdminUser, db: DB) -> list[AdminOrgOut]:
+    """Mọi tổ chức (khách hàng), cũ nhất trước: email chủ, số dư, đã tiêu trong tháng, số máy."""
+    return [AdminOrgOut(**row) for row in stats.organizations(db, utcnow())]
+
+
+@router.get("/instances", response_model=list[AdminInstanceOut])
+def list_instances(admin: AdminUser, db: DB) -> list[AdminInstanceOut]:
+    """Mọi máy chưa xoá của mọi tổ chức, mới nhất trước."""
+    rows = db.execute(
+        select(Instance, Organization)
+        .join(Project, Project.id == Instance.project_id)
+        .join(Organization, Organization.id == Project.org_id)
+        .where(Instance.status != InstanceStatus.deleted)
+        .order_by(Instance.created_at.desc())
+    ).all()
+    return [
+        AdminInstanceOut(
+            **InstanceOut.model_validate(inst).model_dump(),
+            org_id=org.id,
+            org_name=org.name,
+            public_hostname=inst.public_hostname,
+            public_blocked=inst.public_blocked,
+        )
+        for inst, org in rows
+    ]
+
+
+@router.get("/audit", response_model=list[AdminAuditOut])
+def platform_audit(
+    admin: AdminUser, db: DB, limit: int = Query(50, ge=1, le=500)
+) -> list[AdminAuditOut]:
+    """Nhật ký của cả nền tảng, mới nhất trước, gồm cả các lần truy cập bị chặn."""
+    rows = db.execute(
+        select(AuditLog, Organization.name, User.email)
+        .outerjoin(Organization, Organization.id == AuditLog.org_id)
+        .outerjoin(User, User.id == AuditLog.actor_id)
+        .order_by(AuditLog.at.desc())
+        .limit(limit)
+    ).all()
+    return [
+        AdminAuditOut(
+            at=entry.at,
+            actor_id=entry.actor_id,
+            action=entry.action,
+            target_type=entry.target_type,
+            target_id=entry.target_id,
+            outcome=entry.outcome,
+            detail=json.loads(entry.detail) if entry.detail else None,
+            org_id=entry.org_id,
+            org_name=org_name,
+            actor_email=email,
+        )
+        for entry, org_name, email in rows
+    ]
+
+
+@router.get("/stats")
+def trial_stats(admin: AdminUser, db: DB, settings: AppSettings) -> dict[str, Any]:
+    """Số liệu cho báo cáo chạy thử, giống lệnh `minicloud-admin stats`."""
+    return stats.collect(db, utcnow(), settings.green_grid_kg_co2_per_kwh)
 
 
 @router.get("/green/plan", response_model=GreenPlanOut)

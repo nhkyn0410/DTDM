@@ -17,7 +17,7 @@ Nền tảng điện toán đám mây đa người thuê chạy trên cụm Incu
 | Chạy lệnh trong máy từ console (`POST /v1/instances/{id}/exec`), vì SSH từ Internet không tới được máy của khách | Chạy được, có test; cách gọi exec của Incus 6.0 đã thử trên staging |
 | Nhóm máy tự co giãn: thêm hoặc bớt máy theo CPU, Traefik chia tải qua một địa chỉ chung (`/v1/projects/{id}/groups`) | Chạy được, có test. Thử trên staging: 1 → 3 máy trong 149 giây khi bắn tải, tự về 1 máy khi hết tải |
 | Green cloud: API admin dọn laptop (evacuate), đánh thức bằng Wake-on-LAN, nhận lại (restore), có rào chống mất quorum | Chạy được, có test; chưa thử trên cụm thật |
-| Giám sát hai phía: khách thấy CPU từng máy, W và Wh; admin thấy doanh thu mô phỏng, công suất cụm, mức cấp phát từng laptop (`/v1/admin/overview`, mục Nhà cung cấp trên console) | Chạy được, có test |
+| Giám sát hai phía: khách thấy CPU từng máy, W và Wh. Admin có mục Nhà cung cấp trên console: doanh thu mô phỏng, công suất cụm, mức cấp phát từng laptop, mọi khách hàng và máy của họ, số liệu chạy thử, 50 sự kiện gần nhất của cả nền tảng; nạp credit và gỡ địa chỉ công khai bằng một nút (`/v1/admin/overview`, `orgs`, `instances`, `audit`, `stats`) | Chạy được, có test |
 | Cách ly mạng: máy của khách không gửi gói tin thẳng cho nhau (`security.port_isolation`) | Chạy được, có test, đã thử trên staging |
 | Script thí nghiệm trong `infra/bench`: thời gian cấp phát, mật độ, hàng xóm ồn ào, overcommit, bắn tải, khôi phục control plane | Đã đo trên staging: container p50 6,7 giây, p95 7,4 giây; một node chứa 200 container nghỉ với 8,2 GB RAM (sau khi nâng giới hạn inotify của kernel); giới hạn CPU giữ tenant B không chậm đi (bỏ giới hạn thì chậm 23%); overcommit 4:1 còn một phần tư CPU mỗi khách; API bị kill tự chạy lại sau khoảng 6 giây mà app của khách không lỗi request nào. Xem [infra/bench/README.md](infra/bench/README.md) |
 | Chặn truy cập chéo tenant (trả 404, ghi audit) | Chạy được, có test |
@@ -71,10 +71,11 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/v1/projects/$($r.proj
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/projects/$($r.project_id)/instances" -Headers $h
 ```
 
-Lệnh quản trị (cấp quyền admin để xem `/v1/admin/nodes` và `/v1/admin/green/plan`):
+Lệnh quản trị (tài khoản admin thấy mục Nhà cung cấp trên console và gọi được `/v1/admin/...`):
 
 ```powershell
 uv run minicloud make-admin an@example.com
+uv run minicloud orgs             # mọi tổ chức: mã, email chủ, số dư, số máy đang chạy
 uv run minicloud grant-credits <org_id> 1000
 uv run minicloud migrate          # nâng database lên bản schema mới nhất
 uv run minicloud backup           # chép minicloud.db vào thư mục backups/

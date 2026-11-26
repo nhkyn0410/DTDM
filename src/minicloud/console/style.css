@@ -174,6 +174,19 @@ table.usage {
 .card.green { margin-top: 1rem; }
 .card.provider { margin-top: 1rem; }
 .card.provider .stats { margin-top: 0; }
+.card.provider h3 { margin: 1.5rem 0 .5rem; font-size: 1rem; }
+@media (min-width: 64rem) {
+  /* The provider's tables need more room than the customer view's single column. */
+  .card.provider { width: min(72rem, calc(100vw - 2rem)); margin-left: calc(50% - min(36rem, 50vw - 1rem)); }
+}
+table.usage.admin td.host { white-space: normal; word-break: break-all; min-width: 12rem; }
+table.usage.admin th, table.usage.admin td { text-align: left; vertical-align: top; }
+table.usage.admin th.num, table.usage.admin td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.usage.admin td.wrap { white-space: normal; min-width: 16rem; }
+table.usage.admin tr.denied td { color: var(--danger); }
+.grant { display: flex; gap: .4rem; align-items: center; }
+.grant input { width: 6rem; padding: .35rem .5rem; }
+.grant button { padding: .35rem .7rem; }
 .terminal { margin-top: .75rem; }
 .terminal .head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .term {

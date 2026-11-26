@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 
 from minicloud.drivers.base import DriverError
@@ -99,3 +100,50 @@ def test_the_provider_overview_adds_up(signup, run_worker, session):
 
 def test_the_overview_is_for_admins_only(signup):
     assert signup().get("/v1/admin/overview").status_code == 403
+
+
+def test_the_provider_sees_every_customer_and_machine(signup, run_worker, session):
+    an = signup("an@example.com", "Nhom An")
+    binh = signup("binh@example.com", "Nhom Binh")
+    make_admin(session, "an@example.com")
+    binh.create_instance("b-1")
+    t0 = utcnow() - timedelta(hours=1)
+    run_worker(now=t0)
+    with session() as db:
+        run_metering_tick(db, t0 + timedelta(minutes=30))
+
+    orgs = {o["id"]: o for o in an.get("/v1/admin/orgs").json()}
+    assert orgs[binh.org_id]["owner_email"] == "binh@example.com"
+    assert orgs[binh.org_id]["instances_running"] == 1
+    assert orgs[binh.org_id]["spent_month"] > 0
+    assert orgs[an.org_id]["instances_total"] == 0
+    [machine] = an.get("/v1/admin/instances").json()
+    assert (machine["name"], machine["org_name"], machine["status"]) == (
+        "b-1",
+        "Nhom Binh",
+        "running",
+    )
+    assert machine["public_blocked"] is False
+
+
+def test_the_platform_audit_shows_who_was_blocked_where(signup, session):
+    an = signup("an@example.com", "Nhom An")
+    binh = signup("binh@example.com", "Nhom Binh")
+    make_admin(session, "an@example.com")
+    inst_id = an.create_instance("web-1").json()["instance"]["id"]
+    assert binh.get(f"/v1/instances/{inst_id}").status_code == 404
+
+    [denied] = [e for e in an.get("/v1/admin/audit").json() if e["outcome"] == "denied"]
+    assert (denied["org_name"], denied["actor_email"]) == ("Nhom An", "binh@example.com")
+
+
+def test_trial_stats_are_on_the_api_too(signup, session):
+    tenant = signup()
+    make_admin(session, "an@example.com")
+    figures = tenant.get("/v1/admin/stats").json()
+    assert (figures["users"], figures["organizations"]) == (1, 1)
+
+
+@pytest.mark.parametrize("path", ["orgs", "instances", "audit", "stats"])
+def test_the_provider_lists_are_for_admins_only(signup, path):
+    assert signup().get(f"/v1/admin/{path}").status_code == 403

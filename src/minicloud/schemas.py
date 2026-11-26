@@ -371,6 +371,33 @@ class OverviewOut(BaseModel):
     groups: int
 
 
+class AdminOrgOut(BaseModel):
+    """A customer as the provider sees it."""
+
+    id: str
+    name: str
+    owner_email: str | None
+    created_at: datetime
+    credits: float
+    suspended: bool
+    spent_month: float = Field(description="Credit đã trừ trong tháng này (giờ Việt Nam)")
+    instances_running: int
+    instances_total: int = Field(description="Máy chưa xoá, kể cả máy đang dừng")
+
+
+class AdminInstanceOut(InstanceOut):
+    org_id: str
+    org_name: str
+    public_hostname: str | None = Field(description="Tên miền của máy, kể cả khi đã bị gỡ")
+    public_blocked: bool
+
+
+class AdminAuditOut(AuditOut):
+    org_id: str | None
+    org_name: str | None
+    actor_email: str | None
+
+
 class NodeActionOut(BaseModel):
     node: str
     action: str
